@@ -1,5 +1,5 @@
 import React, { useState, useRef } from "react";
-import { Loader2, Copy, Check, Download, Clapperboard, AlertTriangle, Upload, ImagePlus, FileImage, UserCircle2, Image, Trash2, Sparkles } from "lucide-react";
+import { Loader2, Copy, Check, Download, Clapperboard, AlertTriangle, Upload, ImagePlus, FileImage, UserCircle2, Image, Trash2 } from "lucide-react";
 
 const C = {
   paper: "#efe9dd", panel: "#f7f3ea", ink: "#16130f",
@@ -195,69 +195,13 @@ export default function StoryboardTool() {
   const [copiedNo, setCopiedNo] = useState(null);
   const [exporting, setExporting] = useState(false);
 
-  // 레퍼런스 이미지
-  const [charRefs, setCharRefs] = useState([]); // [{id, name, dataURL, desc, analyzing}]
-  const [bgRef, setBgRef] = useState(null);      // {dataURL, desc, analyzing}
+  // 레퍼런스 이미지 — 이름만 관리, 묘사는 프롬프트에 넣지 않음
+  const [charRefs, setCharRefs] = useState([]); // [{id, name, dataURL}]
+  const [bgRef, setBgRef] = useState(null);      // {dataURL}
   const charFileRef = useRef(null);
   const bgFileRef = useRef(null);
 
   const step = gkontiText ? (cuts ? 3 : 2) : 1;
-
-  // ── 캐릭터/배경 레퍼런스 분석 ────────────────────────────────────────────
-  const analyzeImage = async (dataURL, type, id) => {
-    const base64 = dataURL.split(",")[1];
-    const mediaType = dataURL.split(";")[0].split(":")[1];
-    const isChar = type === "char";
-    if (isChar) {
-      setCharRefs(prev => prev.map(c => c.id === id ? { ...c, analyzing: true } : c));
-    } else {
-      setBgRef(prev => ({ ...prev, analyzing: true }));
-    }
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: API_HEADERS,
-        body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 300,
-          messages: [{
-            role: "user",
-            content: [
-              { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
-              {
-                type: "text",
-                text: isChar
-                  ? `This is a character reference sheet for animation/illustration. Describe every visual detail precisely for image generation prompts.
-
-REQUIRED fields (do not skip any):
-- Hair: exact color, length (short/medium/long), style (straight/wavy/tied/etc.)
-- Eyes: color, shape, notable features
-- Face: skin tone, face shape, notable features
-- Top/upper body clothing: garment type, color, pattern, details
-- Bottom clothing: EXACTLY describe — skirt/pants/dress/shorts, color, length, style
-- Footwear: type and color
-- Accessories: any bags, weapons, jewelry, etc.
-- Art style: anime/semi-realistic/etc.
-
-Output in English, one line per item, be specific. Max 100 words.`
-                  : `This is a background/environment reference image. Extract a precise visual description for image generation prompts. Cover: location type, architectural details, color palette, lighting (direction, quality, color temperature), atmosphere, key visual elements, perspective. Output in English, bullet points, max 70 words total.`,
-              }
-            ]
-          }]
-        })
-      });
-      const json = await res.json();
-      const desc = (json.content || []).filter(b => b.type === "text").map(b => b.text).join("").trim();
-      if (isChar) {
-        setCharRefs(prev => prev.map(c => c.id === id ? { ...c, desc, analyzing: false } : c));
-      } else {
-        setBgRef(prev => ({ ...prev, desc, analyzing: false }));
-      }
-    } catch {
-      if (isChar) setCharRefs(prev => prev.map(c => c.id === id ? { ...c, analyzing: false } : c));
-      else setBgRef(prev => ({ ...prev, analyzing: false }));
-    }
-  };
 
   const addCharRef = (e) => {
     const file = e.target.files?.[0];
@@ -266,9 +210,7 @@ Output in English, one line per item, be specific. Max 100 words.`
     reader.onload = (ev) => {
       const id = Date.now();
       const name = file.name.replace(/\.[^.]+$/, "");
-      const dataURL = ev.target.result;
-      setCharRefs(prev => [...prev, { id, name, dataURL, desc: "", analyzing: false }]);
-      analyzeImage(dataURL, "char", id);
+      setCharRefs(prev => [...prev, { id, name, dataURL: ev.target.result }]);
     };
     reader.readAsDataURL(file);
     e.target.value = "";
@@ -278,11 +220,7 @@ Output in English, one line per item, be specific. Max 100 words.`
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataURL = ev.target.result;
-      setBgRef({ dataURL, desc: "", analyzing: false });
-      analyzeImage(dataURL, "bg", null);
-    };
+    reader.onload = (ev) => setBgRef({ dataURL: ev.target.result });
     reader.readAsDataURL(file);
     e.target.value = "";
   };
@@ -346,10 +284,14 @@ ${rawInput.trim()}`;
   };
 
   const buildStage2Prompt = () => {
-    const charBlock = charRefs.filter(c => c.desc).map(c => `캐릭터 [${c.name}]:\n${c.desc}`).join("\n\n");
-    const bgBlock = bgRef?.desc ? `배경 레퍼런스:\n${bgRef.desc}` : "";
-    const refBlock = [charBlock, bgBlock].filter(Boolean).join("\n\n");
-    const hasRefs = refBlock.trim().length > 0;
+    const charNames = charRefs.map(c => c.name).join(", ");
+    const hasChars = charRefs.length > 0;
+    const hasBg = !!bgRef;
+    const hasRefs = hasChars || hasBg;
+
+    const refNote = hasRefs
+      ? `[등록된 레퍼런스 이미지]\n${hasChars ? `- 캐릭터 시트: ${charNames}` : ""}${hasBg ? "\n- 배경 레퍼런스: 1장" : ""}\n\n위 레퍼런스 이미지는 사용자가 이미지 생성 툴에 직접 첨부할 예정입니다. prompt에 캐릭터 외형이나 배경을 텍스트로 묘사하지 말고, 대신 아래 문구를 프롬프트 끝에 추가하세요:\n${hasChars ? `"Use attached character sheet(s) [${charNames}] as strict visual reference for character appearance — do not alter hair, clothing, or colors."` : ""}${hasBg ? '\n"Use attached background reference image for environment and setting."' : ""}\n`
+      : "";
 
     return `당신은 애니메이션 연출/콘티 전문가입니다. 아래 글 콘티를 구조화된 JSON으로 변환하세요.
 
@@ -358,16 +300,14 @@ ${rawInput.trim()}`;
 - camera: FIX / PAN / TILT / T.U. / T.B. / 이동 / 흘림
 - transition: cut / O.L. / F.I. / F.O. / 화이트 / 블랙
 
-${hasRefs ? `[시각 레퍼런스 — prompt 작성에 반드시 반영]\n${refBlock}\n` : ""}
-[prompt 작성 규칙]
-- 영어로 작성, 40~60단어 수준의 상세 프롬프트
-- 포함 필수: ① 샷 사이즈·앵글 ② 등장 캐릭터 외형(레퍼런스 설명을 그대로 반영 — 의상·헤어·색상 임의 변경 금지) ③ 배경·공간 ④ 조명·색감 ⑤ 카메라·구도 ⑥ 아트 스타일 ⑦ aspect ratio 16:9
-- 아트 스타일은 글 콘티의 톤을 반영 (예: anime cel-shading, cinematic illustration 등)
-- 대사가 있으면 해당 감정 상태를 외형 묘사에 녹일 것
-${hasRefs ? "- 프롬프트 끝에 반드시 추가: \"Match character appearance and background strictly to attached reference images.\"" : ""}
+${refNote}[prompt 작성 규칙]
+- 영어로 작성, 30~50단어
+- 포함 필수: ① 샷 사이즈·앵글 ② 장면 상황·동작 ③ 조명·색감 ④ 아트 스타일 ⑤ aspect ratio 16:9
+- 캐릭터 외형(헤어·의상·색상)은 텍스트로 묘사하지 말 것${hasRefs ? " — 레퍼런스 참조 문구로 대체" : ""}
+- 아트 스타일은 글 콘티 톤 반영 (예: anime cel-shading, cinematic illustration 등)
 
 [출력] JSON만. 마크다운·설명 금지.
-{"tone":"...","emotionArc":"...","artStyle":"전체 아트 스타일 한 줄(영어)","cuts":[{"no":1,"size":"","angle":"eye-level/부감/앙각","camera":"","sec":2.0,"emotion":"감정/강도","desc":"구도·피사체 한 줄(10단어 이하)","action":"연출 지시(없으면 빈 문자열)","dialogue":"대사(없으면 빈 문자열)","transition":"","prompt":"detailed 16:9 image generation prompt, 40-60 words"}]}
+{"tone":"...","emotionArc":"...","artStyle":"전체 아트 스타일 한 줄(영어)","cuts":[{"no":1,"size":"","angle":"eye-level/부감/앙각","camera":"","sec":2.0,"emotion":"감정/강도","desc":"구도·피사체 한 줄(10단어 이하)","action":"연출 지시(없으면 빈 문자열)","dialogue":"대사(없으면 빈 문자열)","transition":"","prompt":"image generation prompt, 30-50 words, no character appearance description"}]}
 
 [글 콘티]
 ${gkontiText}`;
@@ -564,7 +504,7 @@ ${gkontiText}`;
           <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.lineSoft}`, display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, fontWeight: 700, color: C.inkSoft }}>REF</span>
             <span style={{ fontFamily: "'Zilla Slab', serif", fontWeight: 600, fontSize: 15 }}>캐릭터 시트 · 배경 레퍼런스</span>
-            <span style={{ marginLeft: "auto", fontSize: 11, color: C.inkSoft }}>업로드 시 AI가 자동 분석 → 프롬프트에 반영</span>
+            <span style={{ marginLeft: "auto", fontSize: 11, color: C.inkSoft }}>이름이 프롬프트에 참조 문구로 자동 삽입됨</span>
           </div>
           <div style={{ padding: 14, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
 
@@ -573,32 +513,16 @@ ${gkontiText}`;
               <div key={c.id} style={{ position: "relative", width: 110, flexShrink: 0 }}>
                 <div style={{ position: "relative", width: 110, height: 110, border: `1.5px solid ${C.ink}`, overflow: "hidden", background: "#ddd5c2" }}>
                   <img src={c.dataURL} alt={c.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                  {c.analyzing && (
-                    <div style={{ position: "absolute", inset: 0, background: "#efe9ddcc", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <Loader2 size={18} style={{ animation: "spin 1s linear infinite", color: C.red }} />
-                    </div>
-                  )}
                   <button onClick={() => setCharRefs(prev => prev.filter(x => x.id !== c.id))}
                     style={{ position: "absolute", top: 3, right: 3, background: C.red, border: "none", borderRadius: 2, cursor: "pointer", display: "flex", padding: 2 }}>
                     <Trash2 size={10} color={C.paper} />
                   </button>
                 </div>
-                <div style={{ marginTop: 4, fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
-                {!c.analyzing && (
-                  <textarea
-                    value={c.desc}
-                    onChange={e => setCharRefs(prev => prev.map(x => x.id === c.id ? { ...x, desc: e.target.value } : x))}
-                    placeholder="분석 중이거나 직접 입력…"
-                    rows={4}
-                    style={{ marginTop: 4, width: "100%", fontSize: 10, color: C.ink, background: "#fffdf8", border: `1px solid ${C.lineSoft}`, borderRadius: 2, padding: "3px 5px", lineHeight: 1.4, resize: "vertical", fontFamily: "sans-serif", outline: "none" }}
-                  />
-                )}
-                {!c.analyzing && (
-                  <button onClick={() => analyzeImage(c.dataURL, "char", c.id)}
-                    style={{ marginTop: 2, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", background: "transparent", color: C.red, border: `1px solid ${C.red}`, padding: "2px 6px", borderRadius: 2 }}>
-                    <Sparkles size={9} /> 재분석
-                  </button>
-                )}
+                <input
+                  value={c.name}
+                  onChange={e => setCharRefs(prev => prev.map(x => x.id === c.id ? { ...x, name: e.target.value } : x))}
+                  style={{ marginTop: 4, width: "100%", fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", color: C.ink, background: "#fffdf8", border: `1px solid ${C.lineSoft}`, borderRadius: 2, padding: "2px 5px", outline: "none" }}
+                />
               </div>
             ))}
 
@@ -617,28 +541,14 @@ ${gkontiText}`;
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <div style={{ fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", color: C.inkSoft, fontWeight: 600 }}>배경 레퍼런스</div>
               {bgRef ? (
-                <div style={{ position: "relative", width: 180, flexShrink: 0 }}>
+                <div style={{ position: "relative", width: 180 }}>
                   <div style={{ position: "relative", width: 180, height: 102, border: `1.5px solid ${C.ink}`, overflow: "hidden", background: "#ddd5c2" }}>
                     <img src={bgRef.dataURL} alt="bg" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                    {bgRef.analyzing && (
-                      <div style={{ position: "absolute", inset: 0, background: "#efe9ddcc", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        <Loader2 size={18} style={{ animation: "spin 1s linear infinite", color: C.red }} />
-                      </div>
-                    )}
                     <button onClick={() => setBgRef(null)}
                       style={{ position: "absolute", top: 3, right: 3, background: C.red, border: "none", borderRadius: 2, cursor: "pointer", display: "flex", padding: 2 }}>
                       <Trash2 size={10} color={C.paper} />
                     </button>
                   </div>
-                  {!bgRef.analyzing && (
-                    <textarea
-                      value={bgRef.desc}
-                      onChange={e => setBgRef(prev => ({ ...prev, desc: e.target.value }))}
-                      placeholder="분석 중이거나 직접 입력…"
-                      rows={3}
-                      style={{ marginTop: 4, width: "100%", fontSize: 10, color: C.ink, background: "#fffdf8", border: `1px solid ${C.lineSoft}`, borderRadius: 2, padding: "3px 5px", lineHeight: 1.4, resize: "vertical", fontFamily: "sans-serif", outline: "none" }}
-                    />
-                  )}
                 </div>
               ) : (
                 <div onClick={() => bgFileRef.current?.click()}
