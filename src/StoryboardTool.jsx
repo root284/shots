@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useId } from "react";
 import { Loader2, Copy, Check, Download, Clapperboard, AlertTriangle, Upload, ImagePlus, FileImage, UserCircle2, Image, Trash2, Wand2 } from "lucide-react";
 
 const C = {
@@ -28,6 +28,8 @@ const API_HEADERS = {
 };
 
 function FramingHint({ size, angle }) {
+  const uid = useId();
+  const patternId = `gr${uid}`;
   const scale = framingScale(size);
   const figH = Math.min(scale * 56, 78);
   const figW = figH * 0.42;
@@ -38,11 +40,11 @@ function FramingHint({ size, angle }) {
   return (
     <svg viewBox="0 0 160 90" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" style={{ display: "block", background: "#e7e0d0" }}>
       <defs>
-        <pattern id="gr" width="3" height="3" patternUnits="userSpaceOnUse">
+        <pattern id={patternId} width="3" height="3" patternUnits="userSpaceOnUse">
           <circle cx="1" cy="1" r="0.4" fill="#00000008" />
         </pattern>
       </defs>
-      <rect x="0" y="0" width="160" height="90" fill="url(#gr)" />
+      <rect x="0" y="0" width="160" height="90" fill={`url(#${patternId})`} />
       {[53.3, 106.6].map(x => <line key={x} x1={x} y1="0" x2={x} y2="90" stroke="#0000000f" strokeWidth="1" />)}
       {[30, 60].map(y => <line key={y} x1="0" y1={y} x2="160" y2={y} stroke="#0000000f" strokeWidth="1" />)}
       <g transform={`translate(80 ${90 - figH * 0.5}) rotate(${skew})`}>
@@ -53,15 +55,6 @@ function FramingHint({ size, angle }) {
   );
 }
 
-function Tag({ label, value }) {
-  if (!value) return null;
-  return (
-    <span style={{ display: "inline-flex", gap: 4, alignItems: "baseline", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, lineHeight: 1.2, color: C.inkSoft, border: `1px solid ${C.lineSoft}`, borderRadius: 2, padding: "2px 5px", background: "#fff8" }}>
-      <b style={{ color: C.red, fontWeight: 600, letterSpacing: 0.3 }}>{label}</b>
-      <span style={{ color: C.ink }}>{value}</span>
-    </span>
-  );
-}
 
 function StepBadge({ n, label, active, done }) {
   return (
@@ -225,6 +218,38 @@ function CutRow({ cut, imageData, onUpload, onCopyPrompt, copied, runningTime, o
   );
 }
 
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function callClaude(prompt, maxTokens) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: API_HEADERS,
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: maxTokens,
+      messages: [{ role: "user", content: prompt }],
+    }),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`);
+  return (json.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
+}
+
+function readFileAsDataURL(file, onResult) {
+  const reader = new FileReader();
+  reader.onload = (ev) => onResult(ev.target.result);
+  reader.readAsDataURL(file);
+}
+
 export default function StoryboardTool() {
   const [rawInput, setRawInput] = useState(SAMPLE);
   const [seconds, setSeconds] = useState(10);
@@ -263,6 +288,7 @@ export default function StoryboardTool() {
     const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
     if (!apiKey) { setError("VITE_OPENAI_API_KEY 환경변수가 없습니다."); return; }
 
+    setError("");
     setGeneratingCuts(prev => new Set([...prev, cut.no]));
     try {
       const hasRefs = charRefs.length > 0 || bgRef;
@@ -321,22 +347,17 @@ export default function StoryboardTool() {
   const addCharRef = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const id = Date.now();
-      const name = file.name.replace(/\.[^.]+$/, "");
-      setCharRefs(prev => [...prev, { id, name, dataURL: ev.target.result }]);
-    };
-    reader.readAsDataURL(file);
+    const name = file.name.replace(/\.[^.]+$/, "");
+    readFileAsDataURL(file, dataURL =>
+      setCharRefs(prev => [...prev, { id: Date.now(), name, dataURL }])
+    );
     e.target.value = "";
   };
 
   const addBgRef = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => setBgRef({ dataURL: ev.target.result });
-    reader.readAsDataURL(file);
+    readFileAsDataURL(file, dataURL => setBgRef({ dataURL }));
     e.target.value = "";
   };
 
@@ -377,18 +398,7 @@ ${rawInput.trim()}`;
   const runStage1 = async () => {
     setLoading1(true); setError(""); setGkontiText(""); setCuts(null); setPanelImages({});
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: API_HEADERS,
-        body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 2048,
-          messages: [{ role: "user", content: buildStage1Prompt() }],
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`);
-      const text = (json.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
+      const text = await callClaude(buildStage1Prompt(), 2048);
       if (!text.trim()) throw new Error("빈 응답");
       setGkontiText(text.trim());
     } catch (e) {
@@ -431,7 +441,7 @@ ${refNote}[컷 수 규칙 — 최우선]
 - 아트 스타일은 글 콘티 톤 반영 (예: anime cel-shading, cinematic illustration 등)
 
 [출력] JSON만. 마크다운·설명 금지.
-{"tone":"...","emotionArc":"...","artStyle":"전체 아트 스타일 한 줄(영어)","cuts":[{"no":1,"size":"","angle":"eye-level/부감/앙각","camera":"","sec":2.0,"emotion":"감정/강도","desc":"구도·피사체 한 줄(10단어 이하)","action":"연출 지시(없으면 빈 문자열)","dialogue":"대사(없으면 빈 문자열)","transition":"","prompt":"image generation prompt, 30-50 words, no character appearance description"}]}
+{"tone":"...","emotionArc":"...","artStyle":"(영어 한 줄)","cuts":[{"no":1,"size":"","angle":"eye-level/부감/앙각","camera":"","sec":2.0,"emotion":"","desc":"","action":"","dialogue":"","transition":"","prompt":"30-50 words, no character appearance description"}]}
 
 [글 콘티]
 ${gkontiText}`;
@@ -440,18 +450,7 @@ ${gkontiText}`;
   const runStage2 = async () => {
     setLoading2(true); setError(""); setCuts(null); setPanelImages({});
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: API_HEADERS,
-        body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 4096,
-          messages: [{ role: "user", content: buildStage2Prompt() }],
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`);
-      const text = (json.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
+      const text = await callClaude(buildStage2Prompt(), 4096);
       const clean = text.replace(/```json|```/g, "").trim();
       const s = clean.indexOf("{"), e = clean.lastIndexOf("}");
       const parsed = JSON.parse(clean.slice(s, e + 1));
@@ -573,14 +572,7 @@ ${gkontiText}`;
       await new Promise((resolve, reject) => {
         canvas.toBlob(blob => {
           if (!blob) return reject(new Error("이미지 생성 실패"));
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = "storyboard.png";
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          triggerDownload(blob, "storyboard.png");
           resolve();
         }, "image/png");
       });
@@ -594,17 +586,11 @@ ${gkontiText}`;
   const exportJSON = () => {
     if (!cuts) return;
     const blob = new Blob([JSON.stringify({ metadata, cuts }, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = "storyboard.json";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    triggerDownload(blob, "storyboard.json");
   };
 
   const total = cuts?.reduce((s, c) => s + (Number(c.sec) || 0), 0) || 0;
-  const inRange = total >= 5 && total <= 15;
+  const inRange = total >= 5 && total <= 15 && (!cuts || (cuts.length >= 6 && cuts.length <= 8));
 
   return (
     <div style={{ minHeight: "100%", background: C.paper, color: C.ink, backgroundImage: "radial-gradient(#0000000a 0.5px, transparent 0.5px)", backgroundSize: "5px 5px", padding: "26px 20px 56px" }}>
@@ -809,12 +795,15 @@ ${gkontiText}`;
                     </tr>
                   </thead>
                   <tbody>
-                    {cuts.map((cut, i) => {
-                      const runningTime = cuts.slice(0, i + 1).reduce((s, c) => s + (Number(c.sec) || 0), 0);
-                      return (
-                        <CutRow key={cut.no} cut={cut} imageData={panelImages[cut.no]} onUpload={handleImageUpload} onCopyPrompt={copyPrompt} copied={copiedNo === cut.no} runningTime={runningTime} onGenerate={generateCutImage} generating={generatingCuts.has(cut.no)} onPromptChange={handlePromptChange} />
-                      );
-                    })}
+                    {(() => {
+                      let running = 0;
+                      return cuts.map(cut => {
+                        running += Number(cut.sec) || 0;
+                        return (
+                          <CutRow key={cut.no} cut={cut} imageData={panelImages[cut.no]} onUpload={handleImageUpload} onCopyPrompt={copyPrompt} copied={copiedNo === cut.no} runningTime={running} onGenerate={generateCutImage} generating={generatingCuts.has(cut.no)} onPromptChange={handlePromptChange} />
+                        );
+                      });
+                    })()}
                   </tbody>
                 </table>
               </div>
