@@ -74,7 +74,7 @@ function StepBadge({ n, label, active, done }) {
   );
 }
 
-function CutPanel({ cut, imageData, onUpload, onCopyPrompt, copied }) {
+function CutRow({ cut, imageData, onUpload, onCopyPrompt, copied, runningTime }) {
   const fileRef = useRef(null);
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
@@ -83,52 +83,102 @@ function CutPanel({ cut, imageData, onUpload, onCopyPrompt, copied }) {
     reader.onload = (ev) => onUpload(cut.no, ev.target.result);
     reader.readAsDataURL(file);
   };
-  return (
-    <div style={{ border: `1.5px solid ${C.ink}`, background: C.panel, display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "3px 3px 0 #00000012" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1.5px solid ${C.ink}`, padding: "5px 9px", background: C.ink }}>
-        <span style={{ fontFamily: "'Zilla Slab', serif", fontWeight: 700, color: C.paper, fontSize: 14, letterSpacing: 1 }}>CUT {String(cut.no).padStart(2, "0")}</span>
-        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: "#f0a89c", fontWeight: 600 }}>{cut.sec != null ? `${cut.sec}s` : "—"}</span>
-      </div>
+  const secStart = (runningTime - (Number(cut.sec) || 0)).toFixed(1);
+  const secEnd = runningTime.toFixed(1);
 
-      <div style={{ position: "relative", aspectRatio: "16/9", borderBottom: `1.5px solid ${C.ink}`, cursor: "pointer", overflow: "hidden" }}
-        onClick={() => fileRef.current?.click()}>
-        {imageData
-          ? <img src={imageData} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-          : <FramingHint size={cut.size} angle={cut.angle} />
-        }
-        <div style={{ position: "absolute", left: 6, top: 6, fontFamily: "'IBM Plex Mono', monospace", fontSize: 9.5, color: C.inkSoft, background: "#efe9ddcc", padding: "1px 5px", borderRadius: 2 }}>
-          {cut.size || "—"} · {cut.angle || "—"}
+  return (
+    <tr style={{ borderBottom: `1.5px solid ${C.ink}` }}>
+      {/* 컷 번호 */}
+      <td style={{ width: 48, textAlign: "center", verticalAlign: "middle", borderRight: `1.5px solid ${C.ink}`, padding: "10px 6px", background: C.panel }}>
+        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 13, color: C.ink }}>{cut.no}</div>
+      </td>
+
+      {/* 시간 */}
+      <td style={{ width: 72, textAlign: "center", verticalAlign: "middle", borderRight: `1.5px solid ${C.ink}`, padding: "10px 6px", background: C.panel }}>
+        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkSoft, lineHeight: 1.6 }}>
+          <span style={{ color: C.ink, fontWeight: 600 }}>{secStart}s</span>
+          <br />~
+          <br /><span style={{ color: C.ink, fontWeight: 600 }}>{secEnd}s</span>
         </div>
-        <div style={{ position: "absolute", right: 6, bottom: 6, display: "flex", gap: 5 }}>
-          <button onClick={(e) => { e.stopPropagation(); onCopyPrompt(cut); }}
-            style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, fontWeight: 600, background: copied ? C.ink : "#ffffffcc", color: copied ? C.paper : C.red, border: `1px solid ${C.red}`, padding: "3px 7px", borderRadius: 2 }}>
-            {copied ? <Check size={10} /> : <Copy size={10} />}
-            {copied ? "복사" : "PROMPT"}
-          </button>
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 4, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, fontWeight: 600, background: "#ffffffcc", color: C.inkSoft, border: `1px solid ${C.line}`, padding: "3px 7px", borderRadius: 2 }}>
-            <ImagePlus size={10} />{imageData ? "교체" : "이미지"}
+      </td>
+
+      {/* 이미지 */}
+      <td style={{ width: 260, borderRight: `1.5px solid ${C.ink}`, padding: 0, verticalAlign: "top" }}>
+        <div style={{ position: "relative", aspectRatio: "16/9", cursor: "pointer", overflow: "hidden" }}
+          onClick={() => fileRef.current?.click()}>
+          {imageData
+            ? <img src={imageData} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+            : <FramingHint size={cut.size} angle={cut.angle} />
+          }
+          <div style={{ position: "absolute", left: 5, top: 5, fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: C.inkSoft, background: "#efe9ddcc", padding: "1px 4px", borderRadius: 2 }}>
+            {cut.size || "—"} · {cut.angle || "—"}
+          </div>
+          <div style={{ position: "absolute", right: 5, bottom: 5, display: "flex", gap: 4 }}>
+            <button onClick={(e) => { e.stopPropagation(); onCopyPrompt(cut); }}
+              style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 3, fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, fontWeight: 600, background: copied ? C.ink : "#ffffffcc", color: copied ? C.paper : C.red, border: `1px solid ${C.red}`, padding: "2px 6px", borderRadius: 2 }}>
+              {copied ? <Check size={9} /> : <Copy size={9} />}
+              {copied ? "복사" : "PROMPT"}
+            </button>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 3, fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, fontWeight: 600, background: "#ffffffcc", color: C.inkSoft, border: `1px solid ${C.line}`, padding: "2px 6px", borderRadius: 2 }}>
+              <ImagePlus size={9} />{imageData ? "교체" : "이미지"}
+            </div>
+          </div>
+          <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleFileChange} />
+        </div>
+      </td>
+
+      {/* 내용·연출 / 카메라·화면 */}
+      <td style={{ verticalAlign: "top", padding: 0 }}>
+        {/* 내용·연출 */}
+        <div style={{ padding: "10px 14px", borderBottom: `1px dashed ${C.line}` }}>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9.5, fontWeight: 700, color: C.red, marginBottom: 6, letterSpacing: 0.5 }}>내용 · 연출</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {cut.desc && (
+              <div style={{ fontSize: 12.5, lineHeight: 1.5, color: C.ink }}>
+                · {cut.desc}
+              </div>
+            )}
+            {cut.action && (
+              <div style={{ fontSize: 12.5, lineHeight: 1.5, color: C.ink }}>
+                · {cut.action}
+              </div>
+            )}
+            {cut.emotion && (
+              <div style={{ fontSize: 12.5, lineHeight: 1.5, color: C.inkSoft }}>
+                · <span style={{ color: C.red }}>감정</span> {cut.emotion}
+              </div>
+            )}
+            {cut.dialogue && (
+              <div style={{ fontSize: 12.5, lineHeight: 1.5, color: C.ink, borderLeft: `2px solid ${C.red}`, paddingLeft: 7, fontStyle: "italic", marginTop: 2 }}>
+                「{cut.dialogue}」
+              </div>
+            )}
           </div>
         </div>
-        <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleFileChange} />
-      </div>
 
-      <div style={{ padding: "9px 10px", display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
-        <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.45, color: C.ink, fontWeight: 500 }}>{cut.desc}</p>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-          <Tag label="CAM" value={cut.camera} />
-          <Tag label="감정" value={cut.emotion} />
-          <Tag label="전환" value={cut.transition} />
+        {/* 카메라·화면 */}
+        <div style={{ padding: "10px 14px" }}>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9.5, fontWeight: 700, color: C.red, marginBottom: 6, letterSpacing: 0.5 }}>카메라 · 화면</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {(cut.size || cut.angle) && (
+              <div style={{ fontSize: 12.5, lineHeight: 1.5, color: C.ink }}>
+                · {[cut.size, cut.angle].filter(Boolean).join(" / ")}
+              </div>
+            )}
+            {cut.camera && (
+              <div style={{ fontSize: 12.5, lineHeight: 1.5, color: C.ink }}>
+                · 카메라 {cut.camera}
+              </div>
+            )}
+            {cut.transition && (
+              <div style={{ fontSize: 12.5, lineHeight: 1.5, color: C.inkSoft }}>
+                · <span style={{ color: C.red }}>전환</span> {cut.transition}
+              </div>
+            )}
+          </div>
         </div>
-        {cut.action && (
-          <p style={{ margin: 0, fontSize: 11.5, lineHeight: 1.4, color: C.inkSoft }}>
-            <span style={{ color: C.red, fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10 }}>연출 </span>{cut.action}
-          </p>
-        )}
-        {cut.dialogue && (
-          <p style={{ margin: 0, fontSize: 11.5, lineHeight: 1.4, color: C.ink, borderLeft: `2px solid ${C.red}`, paddingLeft: 7, fontStyle: "italic" }}>「{cut.dialogue}」</p>
-        )}
-      </div>
-    </div>
+      </td>
+    </tr>
   );
 }
 
@@ -148,19 +198,21 @@ export default function StoryboardTool() {
   const step = gkontiText ? (cuts ? 3 : 2) : 1;
 
   const buildStage1Prompt = () =>
-    `당신은 애니메이션 연출가입니다. 아래 원문을 글 콘티로 다듬되, 원문에 이미 명시된 내용(컷 구성, 타이밍, 카메라, 대사, 장면 순서 등)은 절대 바꾸거나 재해석하지 마세요.
-원문에 없는 항목(색감, 음악 느낌, 감정 강도, 연출 포인트 등)만 보완하세요.
+    `당신은 애니메이션 연출가입니다. 아래 원문을 글 콘티로 다듬으세요.
 
-규칙:
-1. 원문에 적힌 컷 수·순서·타이밍·대사·카메라 지시는 그대로 유지
-2. 원문에 없는 정보만 추가 (분위기, 색감, 음향, 감정 뉘앙스 등)
-3. 재해석·재구성·재배열 금지
-4. 설명이나 메타 코멘트 없이 아래 형식만 출력
+핵심 규칙:
+1. 원문에 "타임라인" 또는 시간 구간(예: 0.0~4.0초)이 있으면, 그 타임라인 구간만을 컷 구성의 유일한 기준으로 삼는다.
+   - "포함 장면", "대사 배치" 등 다른 섹션은 타임라인을 이해하기 위한 참고 메모일 뿐, 별도의 컷으로 만들지 않는다.
+   - 같은 장면을 중복 생성하거나 순서를 바꾸지 않는다.
+2. 원문에 타임라인이 없으면 원문의 서술 순서대로만 컷을 구성한다.
+3. 각 컷에 명시된 대사·카메라·샷 사이즈는 그대로 유지하고, 없는 정보(색감, 감정 강도, 음향 등)만 보완한다.
+4. 재해석·재배열·중복 생성 금지.
+5. 설명이나 메타 코멘트 없이 아래 형식만 출력.
 
 출력 형식(한국어):
 
 【씬 정보】
-원문의 장소/시간 그대로 + 날씨·조명 등 원문에 없는 배경 요소만 보완
+원문의 장소/시간 그대로 + 원문에 없는 조명·날씨 요소만 보완
 
 【전체 톤】
 분위기, 색감 방향, 음악 느낌
@@ -169,10 +221,10 @@ export default function StoryboardTool() {
 씬 전체 감정 흐름 한 줄
 
 【연출 포인트】
-· (원문 연출 의도를 살린 노트 3~5개. 원문에 있는 내용을 뒤집지 말 것)
+· (원문 의도를 살린 연출 노트 3~5개. 원문에 있는 내용을 뒤집지 말 것)
 
 【컷 구상】
-(원문의 컷·타이밍·대사 구조 그대로 유지, 전체 약 ${seconds}초)
+(타임라인 구간 = 컷. 순서·대사·샷 변경 금지. 전체 약 ${seconds}초)
 1. [샷 사이즈/앵글] | 화면: ... | 연기: ... | 감정: ... | ~Xs
 2. ...
 
@@ -484,10 +536,32 @@ ${gkontiText}`;
                 </div>
               </div>
 
-              <div style={{ padding: 14, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(252px, 1fr))", gap: 14 }}>
-                {cuts.map(cut => (
-                  <CutPanel key={cut.no} cut={cut} imageData={panelImages[cut.no]} onUpload={handleImageUpload} onCopyPrompt={copyPrompt} copied={copiedNo === cut.no} />
-                ))}
+              {/* 스토리보드 표 */}
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+                  <colgroup>
+                    <col style={{ width: 48 }} />
+                    <col style={{ width: 72 }} />
+                    <col style={{ width: 260 }} />
+                    <col />
+                  </colgroup>
+                  <thead>
+                    <tr style={{ borderBottom: `1.5px solid ${C.ink}`, background: C.ink }}>
+                      <th style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, fontWeight: 700, color: C.paper, padding: "7px 6px", textAlign: "center", borderRight: `1.5px solid #ffffff22` }}>컷</th>
+                      <th style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, fontWeight: 700, color: C.paper, padding: "7px 6px", textAlign: "center", borderRight: `1.5px solid #ffffff22` }}>시간</th>
+                      <th style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, fontWeight: 700, color: C.paper, padding: "7px 6px", textAlign: "center", borderRight: `1.5px solid #ffffff22` }}>스토리보드 이미지 (16:9)</th>
+                      <th style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, fontWeight: 700, color: C.paper, padding: "7px 14px", textAlign: "left" }}>내용 · 연출 / 카메라 · 화면</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cuts.map((cut, i) => {
+                      const runningTime = cuts.slice(0, i + 1).reduce((s, c) => s + (Number(c.sec) || 0), 0);
+                      return (
+                        <CutRow key={cut.no} cut={cut} imageData={panelImages[cut.no]} onUpload={handleImageUpload} onCopyPrompt={copyPrompt} copied={copiedNo === cut.no} runningTime={runningTime} />
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
 
               <p style={{ padding: "0 14px 14px", margin: 0, fontSize: 11.5, color: C.inkSoft, lineHeight: 1.6 }}>
