@@ -103,8 +103,8 @@ function CutRow({ cut, imageData, onUpload, onCopyPrompt, copied, runningTime })
       </td>
 
       {/* 이미지 */}
-      <td style={{ width: 260, borderRight: `1.5px solid ${C.ink}`, padding: 0, verticalAlign: "top" }}>
-        <div style={{ position: "relative", aspectRatio: "16/9", cursor: "pointer", overflow: "hidden" }}
+      <td style={{ width: 260, borderRight: `1.5px solid ${C.ink}`, padding: 0, verticalAlign: "stretch" }}>
+        <div style={{ position: "relative", width: "100%", height: "100%", cursor: "pointer", overflow: "hidden" }}
           onClick={() => fileRef.current?.click()}>
           {imageData
             ? <img src={imageData} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
