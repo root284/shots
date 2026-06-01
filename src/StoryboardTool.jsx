@@ -1,5 +1,5 @@
 import React, { useState, useRef } from "react";
-import { Loader2, Copy, Check, Download, Clapperboard, AlertTriangle, Upload, ImagePlus, FileImage } from "lucide-react";
+import { Loader2, Copy, Check, Download, Clapperboard, AlertTriangle, Upload, ImagePlus, FileImage, UserCircle2, Image, Trash2, Sparkles } from "lucide-react";
 
 const C = {
   paper: "#efe9dd", panel: "#f7f3ea", ink: "#16130f",
@@ -195,7 +195,85 @@ export default function StoryboardTool() {
   const [copiedNo, setCopiedNo] = useState(null);
   const [exporting, setExporting] = useState(false);
 
+  // 레퍼런스 이미지
+  const [charRefs, setCharRefs] = useState([]); // [{id, name, dataURL, desc, analyzing}]
+  const [bgRef, setBgRef] = useState(null);      // {dataURL, desc, analyzing}
+  const charFileRef = useRef(null);
+  const bgFileRef = useRef(null);
+
   const step = gkontiText ? (cuts ? 3 : 2) : 1;
+
+  // ── 캐릭터/배경 레퍼런스 분석 ────────────────────────────────────────────
+  const analyzeImage = async (dataURL, type, id) => {
+    const base64 = dataURL.split(",")[1];
+    const mediaType = dataURL.split(";")[0].split(":")[1];
+    const isChar = type === "char";
+    if (isChar) {
+      setCharRefs(prev => prev.map(c => c.id === id ? { ...c, analyzing: true } : c));
+    } else {
+      setBgRef(prev => ({ ...prev, analyzing: true }));
+    }
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: API_HEADERS,
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 300,
+          messages: [{
+            role: "user",
+            content: [
+              { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
+              {
+                type: "text",
+                text: isChar
+                  ? `This is a character reference sheet. Extract a concise visual description for use in image generation prompts. Cover: hair (color, length, style), eyes (color, shape), face features, skin tone, outfit/clothing (colors, style, details), notable accessories, art style. Output in English, bullet points, max 80 words total.`
+                  : `This is a background/environment reference image. Extract a concise visual description for use in image generation prompts. Cover: location type, architectural style, color palette, lighting conditions, atmosphere, key visual elements. Output in English, bullet points, max 60 words total.`,
+              }
+            ]
+          }]
+        })
+      });
+      const json = await res.json();
+      const desc = (json.content || []).filter(b => b.type === "text").map(b => b.text).join("").trim();
+      if (isChar) {
+        setCharRefs(prev => prev.map(c => c.id === id ? { ...c, desc, analyzing: false } : c));
+      } else {
+        setBgRef(prev => ({ ...prev, desc, analyzing: false }));
+      }
+    } catch {
+      if (isChar) setCharRefs(prev => prev.map(c => c.id === id ? { ...c, analyzing: false } : c));
+      else setBgRef(prev => ({ ...prev, analyzing: false }));
+    }
+  };
+
+  const addCharRef = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const id = Date.now();
+      const name = file.name.replace(/\.[^.]+$/, "");
+      const dataURL = ev.target.result;
+      setCharRefs(prev => [...prev, { id, name, dataURL, desc: "", analyzing: false }]);
+      analyzeImage(dataURL, "char", id);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const addBgRef = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataURL = ev.target.result;
+      setBgRef({ dataURL, desc: "", analyzing: false });
+      analyzeImage(dataURL, "bg", null);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
 
   const buildStage1Prompt = () =>
     `당신은 애니메이션 연출가입니다. 아래 원문을 글 콘티로 다듬으세요.
@@ -255,19 +333,32 @@ ${rawInput.trim()}`;
     }
   };
 
-  const buildStage2Prompt = () =>
-    `당신은 애니메이션 연출/콘티 전문가입니다. 아래 글 콘티를 6~8컷의 구조화된 JSON으로 변환하세요.
+  const buildStage2Prompt = () => {
+    const charBlock = charRefs.filter(c => c.desc).map(c => `캐릭터 [${c.name}]:\n${c.desc}`).join("\n\n");
+    const bgBlock = bgRef?.desc ? `배경 레퍼런스:\n${bgRef.desc}` : "";
+    const refBlock = [charBlock, bgBlock].filter(Boolean).join("\n\n");
+    const hasRefs = refBlock.trim().length > 0;
+
+    return `당신은 애니메이션 연출/콘티 전문가입니다. 아래 글 콘티를 구조화된 JSON으로 변환하세요.
 
 [통제 어휘]
 - size: L.S. / F.S. / 니샷 / 웨스트 / 바스트 / 업 / 익스트림업
 - camera: FIX / PAN / TILT / T.U. / T.B. / 이동 / 흘림
 - transition: cut / O.L. / F.I. / F.O. / 화이트 / 블랙
 
-[출력] JSON만. 마크다운·설명 금지. 값은 짧게(구절 단위).
-{"tone":"...","emotionArc":"...","cuts":[{"no":1,"size":"","angle":"eye-level/부감/앙각","camera":"","sec":2.0,"emotion":"감정/강도","desc":"구도·피사체 한 줄(10단어 이하)","action":"연출 지시(없으면 빈 문자열)","dialogue":"대사(없으면 빈 문자열)","transition":"","prompt":"concise English image prompt max 12 words"}]}
+${hasRefs ? `[시각 레퍼런스 — prompt 작성에 반드시 반영]\n${refBlock}\n` : ""}
+[prompt 작성 규칙]
+- 영어로 작성, 40~60단어 수준의 상세 프롬프트
+- 포함 필수: ① 샷 사이즈·앵글 ② 등장 캐릭터 외형(레퍼런스 있으면 반영) ③ 배경·공간 ④ 조명·색감 ⑤ 카메라·구도 ⑥ 아트 스타일 ⑦ aspect ratio 16:9
+- 아트 스타일은 글 콘티의 톤을 반영 (예: anime cel-shading, cinematic illustration 등)
+- 대사가 있으면 해당 감정 상태를 외형 묘사에 녹일 것
+
+[출력] JSON만. 마크다운·설명 금지.
+{"tone":"...","emotionArc":"...","artStyle":"전체 아트 스타일 한 줄(영어)","cuts":[{"no":1,"size":"","angle":"eye-level/부감/앙각","camera":"","sec":2.0,"emotion":"감정/강도","desc":"구도·피사체 한 줄(10단어 이하)","action":"연출 지시(없으면 빈 문자열)","dialogue":"대사(없으면 빈 문자열)","transition":"","prompt":"detailed 16:9 image generation prompt, 40-60 words"}]}
 
 [글 콘티]
 ${gkontiText}`;
+  };
 
   const runStage2 = async () => {
     setLoading2(true); setError(""); setCuts(null); setPanelImages({});
@@ -454,6 +545,88 @@ ${gkontiText}`;
             <span>{error}</span>
           </div>
         )}
+
+        {/* 레퍼런스 이미지 패널 */}
+        <div style={{ border: `1.5px solid ${C.line}`, background: C.panel, marginBottom: 20 }}>
+          <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.lineSoft}`, display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, fontWeight: 700, color: C.inkSoft }}>REF</span>
+            <span style={{ fontFamily: "'Zilla Slab', serif", fontWeight: 600, fontSize: 15 }}>캐릭터 시트 · 배경 레퍼런스</span>
+            <span style={{ marginLeft: "auto", fontSize: 11, color: C.inkSoft }}>업로드 시 AI가 자동 분석 → 프롬프트에 반영</span>
+          </div>
+          <div style={{ padding: 14, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
+
+            {/* 캐릭터 시트 목록 */}
+            {charRefs.map(c => (
+              <div key={c.id} style={{ position: "relative", width: 110, flexShrink: 0 }}>
+                <div style={{ position: "relative", width: 110, height: 110, border: `1.5px solid ${C.ink}`, overflow: "hidden", background: "#ddd5c2" }}>
+                  <img src={c.dataURL} alt={c.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  {c.analyzing && (
+                    <div style={{ position: "absolute", inset: 0, background: "#efe9ddcc", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <Loader2 size={18} style={{ animation: "spin 1s linear infinite", color: C.red }} />
+                    </div>
+                  )}
+                  <button onClick={() => setCharRefs(prev => prev.filter(x => x.id !== c.id))}
+                    style={{ position: "absolute", top: 3, right: 3, background: C.red, border: "none", borderRadius: 2, cursor: "pointer", display: "flex", padding: 2 }}>
+                    <Trash2 size={10} color={C.paper} />
+                  </button>
+                </div>
+                <div style={{ marginTop: 4, fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
+                {c.desc && !c.analyzing && (
+                  <div style={{ marginTop: 2, fontSize: 10, color: C.inkSoft, lineHeight: 1.4, maxHeight: 48, overflow: "hidden" }}>{c.desc.slice(0, 80)}…</div>
+                )}
+                {!c.desc && !c.analyzing && (
+                  <button onClick={() => analyzeImage(c.dataURL, "char", c.id)}
+                    style={{ marginTop: 4, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", background: "transparent", color: C.red, border: `1px solid ${C.red}`, padding: "2px 6px", borderRadius: 2 }}>
+                    <Sparkles size={9} /> 재분석
+                  </button>
+                )}
+              </div>
+            ))}
+
+            {/* 캐릭터 추가 버튼 */}
+            <div onClick={() => charFileRef.current?.click()}
+              style={{ width: 110, height: 110, border: `1.5px dashed ${C.line}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5, cursor: "pointer", flexShrink: 0, background: "#fffdf8" }}>
+              <UserCircle2 size={22} color={C.inkSoft} />
+              <span style={{ fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", color: C.inkSoft, textAlign: "center", lineHeight: 1.3 }}>캐릭터 시트<br/>추가</span>
+            </div>
+            <input ref={charFileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={addCharRef} />
+
+            {/* 구분선 */}
+            <div style={{ width: 1, background: C.lineSoft, alignSelf: "stretch", margin: "0 4px" }} />
+
+            {/* 배경 레퍼런스 */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", color: C.inkSoft, fontWeight: 600 }}>배경 레퍼런스</div>
+              {bgRef ? (
+                <div style={{ position: "relative", width: 180, flexShrink: 0 }}>
+                  <div style={{ position: "relative", width: 180, height: 102, border: `1.5px solid ${C.ink}`, overflow: "hidden", background: "#ddd5c2" }}>
+                    <img src={bgRef.dataURL} alt="bg" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    {bgRef.analyzing && (
+                      <div style={{ position: "absolute", inset: 0, background: "#efe9ddcc", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <Loader2 size={18} style={{ animation: "spin 1s linear infinite", color: C.red }} />
+                      </div>
+                    )}
+                    <button onClick={() => setBgRef(null)}
+                      style={{ position: "absolute", top: 3, right: 3, background: C.red, border: "none", borderRadius: 2, cursor: "pointer", display: "flex", padding: 2 }}>
+                      <Trash2 size={10} color={C.paper} />
+                    </button>
+                  </div>
+                  {bgRef.desc && !bgRef.analyzing && (
+                    <div style={{ marginTop: 4, fontSize: 10, color: C.inkSoft, lineHeight: 1.4 }}>{bgRef.desc.slice(0, 80)}…</div>
+                  )}
+                </div>
+              ) : (
+                <div onClick={() => bgFileRef.current?.click()}
+                  style={{ width: 180, height: 102, border: `1.5px dashed ${C.line}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5, cursor: "pointer", background: "#fffdf8" }}>
+                  <Image size={22} color={C.inkSoft} />
+                  <span style={{ fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", color: C.inkSoft }}>배경 이미지 추가</span>
+                </div>
+              )}
+              <input ref={bgFileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={addBgRef} />
+            </div>
+
+          </div>
+        </div>
 
         {/* STEP 01 */}
         <div style={{ border: `1.5px solid ${C.ink}`, background: C.panel, marginBottom: 20, animation: "fadeUp 0.3s ease both" }}>
