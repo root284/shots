@@ -227,8 +227,20 @@ export default function StoryboardTool() {
               {
                 type: "text",
                 text: isChar
-                  ? `This is a character reference sheet. Extract a concise visual description for use in image generation prompts. Cover: hair (color, length, style), eyes (color, shape), face features, skin tone, outfit/clothing (colors, style, details), notable accessories, art style. Output in English, bullet points, max 80 words total.`
-                  : `This is a background/environment reference image. Extract a concise visual description for use in image generation prompts. Cover: location type, architectural style, color palette, lighting conditions, atmosphere, key visual elements. Output in English, bullet points, max 60 words total.`,
+                  ? `This is a character reference sheet for animation/illustration. Describe every visual detail precisely for image generation prompts.
+
+REQUIRED fields (do not skip any):
+- Hair: exact color, length (short/medium/long), style (straight/wavy/tied/etc.)
+- Eyes: color, shape, notable features
+- Face: skin tone, face shape, notable features
+- Top/upper body clothing: garment type, color, pattern, details
+- Bottom clothing: EXACTLY describe — skirt/pants/dress/shorts, color, length, style
+- Footwear: type and color
+- Accessories: any bags, weapons, jewelry, etc.
+- Art style: anime/semi-realistic/etc.
+
+Output in English, one line per item, be specific. Max 100 words.`
+                  : `This is a background/environment reference image. Extract a precise visual description for image generation prompts. Cover: location type, architectural details, color palette, lighting (direction, quality, color temperature), atmosphere, key visual elements, perspective. Output in English, bullet points, max 70 words total.`,
               }
             ]
           }]
@@ -349,9 +361,10 @@ ${rawInput.trim()}`;
 ${hasRefs ? `[시각 레퍼런스 — prompt 작성에 반드시 반영]\n${refBlock}\n` : ""}
 [prompt 작성 규칙]
 - 영어로 작성, 40~60단어 수준의 상세 프롬프트
-- 포함 필수: ① 샷 사이즈·앵글 ② 등장 캐릭터 외형(레퍼런스 있으면 반영) ③ 배경·공간 ④ 조명·색감 ⑤ 카메라·구도 ⑥ 아트 스타일 ⑦ aspect ratio 16:9
+- 포함 필수: ① 샷 사이즈·앵글 ② 등장 캐릭터 외형(레퍼런스 설명을 그대로 반영 — 의상·헤어·색상 임의 변경 금지) ③ 배경·공간 ④ 조명·색감 ⑤ 카메라·구도 ⑥ 아트 스타일 ⑦ aspect ratio 16:9
 - 아트 스타일은 글 콘티의 톤을 반영 (예: anime cel-shading, cinematic illustration 등)
 - 대사가 있으면 해당 감정 상태를 외형 묘사에 녹일 것
+${hasRefs ? "- 프롬프트 끝에 반드시 추가: \"Match character appearance and background strictly to attached reference images.\"" : ""}
 
 [출력] JSON만. 마크다운·설명 금지.
 {"tone":"...","emotionArc":"...","artStyle":"전체 아트 스타일 한 줄(영어)","cuts":[{"no":1,"size":"","angle":"eye-level/부감/앙각","camera":"","sec":2.0,"emotion":"감정/강도","desc":"구도·피사체 한 줄(10단어 이하)","action":"연출 지시(없으면 빈 문자열)","dialogue":"대사(없으면 빈 문자열)","transition":"","prompt":"detailed 16:9 image generation prompt, 40-60 words"}]}
@@ -571,12 +584,18 @@ ${gkontiText}`;
                   </button>
                 </div>
                 <div style={{ marginTop: 4, fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
-                {c.desc && !c.analyzing && (
-                  <div style={{ marginTop: 2, fontSize: 10, color: C.inkSoft, lineHeight: 1.4, maxHeight: 48, overflow: "hidden" }}>{c.desc.slice(0, 80)}…</div>
+                {!c.analyzing && (
+                  <textarea
+                    value={c.desc}
+                    onChange={e => setCharRefs(prev => prev.map(x => x.id === c.id ? { ...x, desc: e.target.value } : x))}
+                    placeholder="분석 중이거나 직접 입력…"
+                    rows={4}
+                    style={{ marginTop: 4, width: "100%", fontSize: 10, color: C.ink, background: "#fffdf8", border: `1px solid ${C.lineSoft}`, borderRadius: 2, padding: "3px 5px", lineHeight: 1.4, resize: "vertical", fontFamily: "sans-serif", outline: "none" }}
+                  />
                 )}
-                {!c.desc && !c.analyzing && (
+                {!c.analyzing && (
                   <button onClick={() => analyzeImage(c.dataURL, "char", c.id)}
-                    style={{ marginTop: 4, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", background: "transparent", color: C.red, border: `1px solid ${C.red}`, padding: "2px 6px", borderRadius: 2 }}>
+                    style={{ marginTop: 2, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", background: "transparent", color: C.red, border: `1px solid ${C.red}`, padding: "2px 6px", borderRadius: 2 }}>
                     <Sparkles size={9} /> 재분석
                   </button>
                 )}
@@ -611,8 +630,14 @@ ${gkontiText}`;
                       <Trash2 size={10} color={C.paper} />
                     </button>
                   </div>
-                  {bgRef.desc && !bgRef.analyzing && (
-                    <div style={{ marginTop: 4, fontSize: 10, color: C.inkSoft, lineHeight: 1.4 }}>{bgRef.desc.slice(0, 80)}…</div>
+                  {!bgRef.analyzing && (
+                    <textarea
+                      value={bgRef.desc}
+                      onChange={e => setBgRef(prev => ({ ...prev, desc: e.target.value }))}
+                      placeholder="분석 중이거나 직접 입력…"
+                      rows={3}
+                      style={{ marginTop: 4, width: "100%", fontSize: 10, color: C.ink, background: "#fffdf8", border: `1px solid ${C.lineSoft}`, borderRadius: 2, padding: "3px 5px", lineHeight: 1.4, resize: "vertical", fontFamily: "sans-serif", outline: "none" }}
+                    />
                   )}
                 </div>
               ) : (
