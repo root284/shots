@@ -74,8 +74,9 @@ function StepBadge({ n, label, active, done }) {
   );
 }
 
-function CutRow({ cut, imageData, onUpload, onCopyPrompt, copied, runningTime, onGenerate, generating }) {
+function CutRow({ cut, imageData, onUpload, onCopyPrompt, copied, runningTime, onGenerate, generating, onPromptChange }) {
   const fileRef = useRef(null);
+  const [promptOpen, setPromptOpen] = useState(false);
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -187,6 +188,37 @@ function CutRow({ cut, imageData, onUpload, onCopyPrompt, copied, runningTime, o
               </div>
             )}
           </div>
+        </div>
+
+        {/* 프롬프트 편집 토글 */}
+        <div style={{ borderTop: `1px solid ${C.lineSoft}` }}>
+          <button onClick={() => setPromptOpen(v => !v)}
+            style={{ width: "100%", padding: "6px 14px", display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace", fontSize: 9.5, fontWeight: 600, color: C.inkSoft, textAlign: "left" }}>
+            <Wand2 size={10} color="#7c4dff" />
+            <span style={{ color: "#7c4dff" }}>PROMPT</span>
+            <span style={{ marginLeft: "auto" }}>{promptOpen ? "▲" : "▼"}</span>
+          </button>
+          {promptOpen && (
+            <div style={{ padding: "0 14px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+              <textarea
+                value={cut.prompt || ""}
+                onChange={e => onPromptChange(cut.no, e.target.value)}
+                rows={4}
+                style={{ width: "100%", fontSize: 11, lineHeight: 1.6, color: C.ink, background: "#fffdf8", border: `1px solid ${C.lineSoft}`, borderRadius: 2, padding: "6px 8px", resize: "vertical", fontFamily: "sans-serif", outline: "none" }}
+              />
+              <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                <button onClick={() => onCopyPrompt(cut)}
+                  style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, fontWeight: 600, background: "transparent", color: C.inkSoft, border: `1px solid ${C.line}`, padding: "4px 10px", borderRadius: 2 }}>
+                  {copied ? <Check size={10} /> : <Copy size={10} />} {copied ? "복사됨" : "복사"}
+                </button>
+                <button onClick={() => onGenerate(cut)} disabled={generating}
+                  style={{ cursor: generating ? "default" : "pointer", display: "inline-flex", alignItems: "center", gap: 4, fontFamily: "'Zilla Slab', serif", fontSize: 11, fontWeight: 700, background: "#7c4dff", color: "#fff", border: "none", padding: "4px 12px", borderRadius: 2, opacity: generating ? 0.6 : 1 }}>
+                  {generating ? <Loader2 size={10} style={{ animation: "spin 1s linear infinite" }} /> : <Wand2 size={10} />}
+                  {generating ? "생성 중…" : "이 프롬프트로 재생성"}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </td>
     </tr>
@@ -435,6 +467,10 @@ ${gkontiText}`;
 
   const handleImageUpload = (no, dataURL) => {
     setPanelImages(prev => ({ ...prev, [no]: dataURL }));
+  };
+
+  const handlePromptChange = (no, value) => {
+    setCuts(prev => prev.map(c => c.no === no ? { ...c, prompt: value } : c));
   };
 
   const copyPrompt = (cut) => {
@@ -776,7 +812,7 @@ ${gkontiText}`;
                     {cuts.map((cut, i) => {
                       const runningTime = cuts.slice(0, i + 1).reduce((s, c) => s + (Number(c.sec) || 0), 0);
                       return (
-                        <CutRow key={cut.no} cut={cut} imageData={panelImages[cut.no]} onUpload={handleImageUpload} onCopyPrompt={copyPrompt} copied={copiedNo === cut.no} runningTime={runningTime} onGenerate={generateCutImage} generating={generatingCuts.has(cut.no)} />
+                        <CutRow key={cut.no} cut={cut} imageData={panelImages[cut.no]} onUpload={handleImageUpload} onCopyPrompt={copyPrompt} copied={copiedNo === cut.no} runningTime={runningTime} onGenerate={generateCutImage} generating={generatingCuts.has(cut.no)} onPromptChange={handlePromptChange} />
                       );
                     })}
                   </tbody>
