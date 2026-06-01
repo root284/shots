@@ -451,12 +451,22 @@ ${gkontiText}`;
         }
       });
 
-      canvas.toBlob(blob => {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url; a.download = "storyboard.png"; a.click();
-        URL.revokeObjectURL(url);
-      }, "image/png");
+      await new Promise((resolve, reject) => {
+        canvas.toBlob(blob => {
+          if (!blob) return reject(new Error("이미지 생성 실패"));
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "storyboard.png";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          resolve();
+        }, "image/png");
+      });
+    } catch (e) {
+      setError(`이미지 저장 실패: ${e.message}`);
     } finally {
       setExporting(false);
     }
@@ -466,8 +476,12 @@ ${gkontiText}`;
     if (!cuts) return;
     const blob = new Blob([JSON.stringify({ metadata, cuts }, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "storyboard.json"; a.click();
-    URL.revokeObjectURL(url);
+    const a = document.createElement("a");
+    a.href = url; a.download = "storyboard.json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   const total = cuts?.reduce((s, c) => s + (Number(c.sec) || 0), 0) || 0;
