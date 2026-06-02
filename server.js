@@ -26,27 +26,29 @@ async function proxyOpenAI(req, res) {
     res.end(JSON.stringify({ error: { message: "OPENAI_API_KEY not set on server" } }));
     return;
   }
+
   const targetUrl = `https://api.openai.com${req.url.replace(/^\/api\/openai/, "")}`;
   const headers = { Authorization: `Bearer ${OPENAI_KEY}` };
   if (req.headers["content-type"]) headers["content-type"] = req.headers["content-type"];
 
+  // Read request body
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
   const body = Buffer.concat(chunks);
 
-  try {
-    const fetchRes = await fetch(targetUrl, {
-      method: req.method,
-      headers,
-      body: body.length > 0 ? body : undefined,
-    });
-    const ct = fetchRes.headers.get("content-type");
-    res.writeHead(fetchRes.status, ct ? { "Content-Type": ct } : {});
-    res.end(Buffer.from(await fetchRes.arrayBuffer()));
-  } catch (e) {
-    res.writeHead(502, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: { message: e.message } }));
-  }
+  // Allow up to 3 minutes for image generation
+  const signal = AbortSignal.timeout(180_000);
+
+  const fetchRes = await fetch(targetUrl, {
+    method: req.method,
+    headers,
+    body: body.length > 0 ? body : undefined,
+    signal,
+  });
+
+  const ct = fetchRes.headers.get("content-type");
+  res.writeHead(fetchRes.status, ct ? { "Content-Type": ct } : {});
+  res.end(Buffer.from(await fetchRes.arrayBuffer()));
 }
 
 async function serveStatic(req, res) {
@@ -54,7 +56,7 @@ async function serveStatic(req, res) {
   try {
     if ((await stat(filePath)).isDirectory()) filePath = join(filePath, "index.html");
   } catch {
-    filePath = join(DIST, "index.html"); // SPA fallback
+    filePath = join(DIST, "index.html");
   }
   try {
     const data = await readFile(filePath);
@@ -66,10 +68,24 @@ async function serveStatic(req, res) {
   }
 }
 
-createServer(async (req, res) => {
-  if (req.url.startsWith("/api/openai/")) {
-    await proxyOpenAI(req, res);
-  } else {
-    await serveStatic(req, res);
+const server = createServer(async (req, res) => {
+  try {
+    if (req.url.startsWith("/api/openai/")) {
+      await proxyOpenAI(req, res);
+    } else {
+      await serveStatic(req, res);
+    }
+  } catch (e) {
+    console.error("Handler error:", e.message);
+    if (!res.headersSent) {
+      res.writeHead(502, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: { message: e.message } }));
+    }
   }
-}).listen(PORT, () => console.log(`Server running on port ${PORT}`));
+});
+
+// 서버가 죽지 않도록 전역 에러 핸들링
+process.on("uncaughtException", (e) => console.error("Uncaught:", e.message));
+process.on("unhandledRejection", (e) => console.error("Unhandled:", e));
+
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
