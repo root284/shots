@@ -253,12 +253,9 @@ function readFileAsDataURL(file, onResult) {
   reader.readAsDataURL(file);
 }
 
-// ── 영상 프레임 추출 ──────────────────────────────────────────────────────────
-const MAX_FRAMES = 20;
-const DIFF_W = 160; // 픽셀 diff 계산용 소형 캔버스 폭
-const OUT_W  = 512; // Claude 전송용 프레임 폭
+// (extractKeyFrames removed — video sent directly to Gemini server-side)
 
-async function extractKeyFrames(file, onProgress, signal) {
+async function extractKeyFrames_UNUSED(file, onProgress, signal) {
   const url = URL.createObjectURL(file);
   const video = document.createElement("video");
   video.src = url;
@@ -538,29 +535,23 @@ export default function StoryboardTool() {
     abortRef.current = new AbortController();
     const { signal } = abortRef.current;
     try {
-      const frames = await extractKeyFrames(file, setVideoProgress, signal);
-      const content = [
-        ...frames.map(f => ({
-          type: "image",
-          source: { type: "base64", media_type: "image/jpeg", data: f.dataURL.split(",")[1] },
-        })),
-        {
-          type: "text",
-          text: `위 ${frames.length}장은 레퍼런스 영상에서 시간 순서대로 추출한 키프레임입니다.
-이 영상을 글 콘티 형식으로 묘사하세요. 각 프레임(또는 연속된 프레임 묶음)을 하나의 컷으로 보고, 아래 형식으로 작성합니다.
+      // 진행률 — 업로드+처리 시간 시뮬레이션 (Gemini 업로드는 진행률 추적 불가)
+      const timer = setInterval(() =>
+        setVideoProgress(p => p < 88 ? p + 1 : p), 800);
 
-출력 형식 (마크다운·설명 없이 이 형식만):
+      const res = await fetch("/api/gemini/analyze", {
+        method: "POST",
+        headers: { "Content-Type": file.type || "video/mp4" },
+        body: file,
+        signal,
+      });
+      clearInterval(timer);
+      setVideoProgress(95);
 
-≈[타임코드] [샷사이즈/앵글] | 화면: [배경·공간·조명·색감 묘사] | 피사체: [인물 위치·복장·표정·동작] | 카메라: [카메라 움직임] | 분위기: [감정·무드 한 줄]
+      const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error ?? "분석 실패");
 
-예시:
-≈0:00 F.S./eye-level | 화면: 햇빛이 비스듬히 드는 낡은 복도, 먼지가 빛 속에 떠다님 | 피사체: 소녀가 복도 끝에 등을 보이고 서 있음, 흰 원피스 | 카메라: FIX | 분위기: 고요하고 쓸쓸한 기다림
-
-모든 컷을 빠짐없이 작성하고, 타임코드는 각 프레임의 대략적인 시각(초 단위)으로 표기.`,
-        },
-      ];
-      const result = await callClaude(content, 1024, signal);
-      setVideoAnalysis(result.trim());
+      setVideoAnalysis(json.text.trim());
       setVideoAnalysisOpen(true);
     } catch (err) {
       if (!isAbort(err)) setError(`영상 분석 실패: ${err.message}`);
