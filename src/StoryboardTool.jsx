@@ -1,5 +1,5 @@
 import React, { useState, useRef, useId } from "react";
-import { Loader2, Copy, Check, Download, Clapperboard, AlertTriangle, Upload, ImagePlus, FileImage, UserCircle2, Image, Trash2, Wand2 } from "lucide-react";
+import { Loader2, Copy, Check, Download, Clapperboard, AlertTriangle, Upload, ImagePlus, FileImage, UserCircle2, Image, Trash2, Wand2, Film, ChevronDown, ChevronUp } from "lucide-react";
 
 const C = {
   paper: "#efe9dd", panel: "#f7f3ea", ink: "#16130f",
@@ -229,14 +229,14 @@ function triggerDownload(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-async function callClaude(prompt, maxTokens) {
+async function callClaude(content, maxTokens) {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: API_HEADERS,
     body: JSON.stringify({
       model: "claude-sonnet-4-6",
       max_tokens: maxTokens,
-      messages: [{ role: "user", content: prompt }],
+      messages: [{ role: "user", content }],
     }),
   });
   const json = await res.json();
@@ -248,6 +248,117 @@ function readFileAsDataURL(file, onResult) {
   const reader = new FileReader();
   reader.onload = (ev) => onResult(ev.target.result);
   reader.readAsDataURL(file);
+}
+
+// ── 영상 프레임 추출 ──────────────────────────────────────────────────────────
+const MAX_FRAMES = 20;
+const DIFF_W = 160; // 픽셀 diff 계산용 소형 캔버스 폭
+const OUT_W  = 512; // Claude 전송용 프레임 폭
+
+async function extractKeyFrames(file, onProgress) {
+  const url = URL.createObjectURL(file);
+  const video = document.createElement("video");
+  video.src = url;
+  video.muted = true;
+  video.playsInline = true;
+
+  await new Promise((resolve, reject) => {
+    video.onloadedmetadata = resolve;
+    video.onerror = () => reject(new Error("영상 로드 실패"));
+    video.load();
+  });
+
+  const duration = video.duration;
+  if (!isFinite(duration) || duration <= 0) throw new Error("영상 길이를 읽을 수 없습니다.");
+
+  const seekTo = (t) =>
+    new Promise((r) => { video.currentTime = t; video.onseeked = r; });
+
+  // 샘플 간격: 최대 120샘플, 최소 0.5s
+  const interval = Math.max(0.5, duration / 120);
+  const times = [];
+  for (let t = 0; t < duration; t += interval) times.push(parseFloat(t.toFixed(2)));
+
+  // 소형 캔버스 — 픽셀 diff 전용
+  const dc = document.createElement("canvas");
+  dc.width = DIFF_W;
+  dc.height = Math.round(DIFF_W * video.videoHeight / video.videoWidth) || 90;
+  const dctx = dc.getContext("2d");
+
+  const samples = [];
+  let prev = null;
+
+  for (let i = 0; i < times.length; i++) {
+    await seekTo(times[i]);
+    dctx.drawImage(video, 0, 0, dc.width, dc.height);
+    const cur = dctx.getImageData(0, 0, dc.width, dc.height).data;
+
+    let diff = 0;
+    if (prev) {
+      for (let j = 0; j < cur.length; j += 4)
+        diff += (Math.abs(cur[j] - prev[j]) + Math.abs(cur[j+1] - prev[j+1]) + Math.abs(cur[j+2] - prev[j+2])) / 3;
+      diff /= (cur.length / 4);
+    }
+    samples.push({ t: times[i], diff });
+    prev = cur;
+    onProgress?.(Math.round((i / times.length) * 60)); // 0~60%
+  }
+
+  // 씬 컷 (diff ≥ 30) & 카메라 무브 구간 (10 ≤ diff < 30, 3프레임 이상 연속)
+  const CUT_TH  = 30;
+  const MOVE_TH = 10;
+
+  const selected = new Set();
+  selected.add(samples[0].t);
+  selected.add(samples[samples.length - 1].t);
+
+  // 씬 컷
+  for (const s of samples) {
+    if (s.diff >= CUT_TH) selected.add(s.t);
+  }
+
+  // 카메라 무브 → start/mid/end 3장 세트
+  let moveStart = -1;
+  for (let i = 0; i < samples.length; i++) {
+    const inMove = samples[i].diff >= MOVE_TH && samples[i].diff < CUT_TH;
+    if (inMove && moveStart < 0) moveStart = i;
+    if ((!inMove || i === samples.length - 1) && moveStart >= 0) {
+      const end = inMove ? i : i - 1;
+      if (end - moveStart >= 2) {
+        const mid = Math.floor((moveStart + end) / 2);
+        selected.add(samples[moveStart].t);
+        selected.add(samples[mid].t);
+        selected.add(samples[end].t);
+      }
+      moveStart = -1;
+    }
+  }
+
+  // 부족하면 균등 보충
+  if (selected.size < MAX_FRAMES) {
+    const step = Math.max(1, Math.floor(samples.length / (MAX_FRAMES - selected.size + 1)));
+    for (let i = step; i < samples.length && selected.size < MAX_FRAMES; i += step)
+      selected.add(samples[i].t);
+  }
+
+  const finalTimes = [...selected].sort((a, b) => a - b).slice(0, MAX_FRAMES);
+
+  // 출력 캔버스 — Claude 전송용 해상도
+  const oc = document.createElement("canvas");
+  oc.width = OUT_W;
+  oc.height = Math.round(OUT_W * video.videoHeight / video.videoWidth) || 288;
+  const octx = oc.getContext("2d");
+
+  const result = [];
+  for (let i = 0; i < finalTimes.length; i++) {
+    await seekTo(finalTimes[i]);
+    octx.drawImage(video, 0, 0, oc.width, oc.height);
+    result.push({ t: finalTimes[i], dataURL: oc.toDataURL("image/jpeg", 0.75) });
+    onProgress?.(60 + Math.round((i / finalTimes.length) * 40)); // 60~100%
+  }
+
+  URL.revokeObjectURL(url);
+  return result;
 }
 
 export default function StoryboardTool() {
@@ -270,6 +381,14 @@ export default function StoryboardTool() {
   const bgFileRef = useRef(null);
   const [generatingCuts, setGeneratingCuts] = useState(new Set()); // 생성 중인 컷 번호
   const [generatingAll, setGeneratingAll] = useState(false);
+
+  // 영상 레퍼런스
+  const [videoName, setVideoName] = useState("");
+  const [videoAnalysis, setVideoAnalysis] = useState(""); // Claude 분석 결과
+  const [videoAnalysisOpen, setVideoAnalysisOpen] = useState(false);
+  const [analyzingVideo, setAnalyzingVideo] = useState(false);
+  const [videoProgress, setVideoProgress] = useState(0);
+  const videoFileRef = useRef(null);
 
   const step = gkontiText ? (cuts ? 3 : 2) : 1;
 
@@ -357,9 +476,65 @@ export default function StoryboardTool() {
     e.target.value = "";
   };
 
-  const buildStage1Prompt = () =>
-    `당신은 애니메이션 연출가입니다. 아래 원문을 글 콘티로 다듬으세요.
+  const handleVideoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    setVideoName(file.name);
+    setVideoAnalysis("");
+    setAnalyzingVideo(true);
+    setVideoProgress(0);
+    setError("");
+    try {
+      const frames = await extractKeyFrames(file, setVideoProgress);
+      const content = [
+        ...frames.map(f => ({
+          type: "image",
+          source: { type: "base64", media_type: "image/jpeg", data: f.dataURL.split(",")[1] },
+        })),
+        {
+          type: "text",
+          text: `위 ${frames.length}장은 레퍼런스 영상에서 추출한 키프레임입니다(시간 순서).
+각 프레임을 분석해 아래 항목을 한국어로 작성하세요.
 
+【샷 구성 패턴】
+- 주로 사용된 샷 사이즈 (L.S./F.S./바스트/업/클로즈업 등)
+- 주로 사용된 앵글 (eye-level/부감/앙각)
+- 카메라 무브 경향 (FIX/PAN/TILT/이동 등)
+
+【무드·스타일】
+- 조명 경향 (자연광/인공광, 하이키/로우키 등)
+- 색감·톤 (따뜻함/차가움, 채도 등)
+- 전체 영상 분위기 한 줄 요약
+
+【연출 참고 포인트】
+이 영상의 카메라 언어를 새 콘티 작업에 반영할 때 핵심적으로 살려야 할 연출 패턴 3~5개를 간결하게 열거.`,
+        },
+      ];
+      const result = await callClaude(content, 1024);
+      setVideoAnalysis(result.trim());
+      setVideoAnalysisOpen(true);
+    } catch (err) {
+      setError(`영상 분석 실패: ${err.message}`);
+      setVideoName("");
+    } finally {
+      setAnalyzingVideo(false);
+      setVideoProgress(0);
+    }
+  };
+
+  const buildStage1Prompt = () => {
+    const videoSection = videoAnalysis
+      ? `【레퍼런스 영상 분석】
+${videoAnalysis}
+
+↑ 위 카메라 언어(샷 사이즈·앵글·무드)를 참고하되, 원문의 연출 의도를 최우선으로 한다.
+
+`
+      : "";
+
+    return `당신은 애니메이션 연출가입니다. 아래 원문을 글 콘티로 다듬으세요.
+${videoSection}
 핵심 규칙:
 1. 원문에 "타임라인" 또는 시간 구간(예: 0.0~4.0초)이 있으면, 그 타임라인 구간만을 컷 구성의 유일한 기준으로 삼는다.
    - "포함 장면", "대사 배치" 등 다른 섹션은 타임라인을 이해하기 위한 참고 메모일 뿐, 별도의 컷으로 만들지 않는다.
@@ -390,6 +565,7 @@ export default function StoryboardTool() {
 
 [원문]
 ${rawInput.trim()}`;
+  };
 
   const runStage1 = async () => {
     setLoading1(true); setError(""); setGkontiText(""); setCuts(null); setPanelImages({});
@@ -684,7 +860,59 @@ ${gkontiText}`;
               <input ref={bgFileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={addBgRef} />
             </div>
 
+            {/* 구분선 */}
+            <div style={{ width: 1, background: C.lineSoft, alignSelf: "stretch", margin: "0 4px" }} />
+
+            {/* 영상 레퍼런스 */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 180 }}>
+              <div style={{ fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", color: C.inkSoft, fontWeight: 600 }}>영상 레퍼런스 <span style={{ fontWeight: 400 }}>(선택)</span></div>
+
+              {analyzingVideo ? (
+                <div style={{ width: 180, height: 76, border: `1.5px solid ${C.line}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, background: "#fffdf8" }}>
+                  <Loader2 size={16} color={C.inkSoft} style={{ animation: "spin 1s linear infinite" }} />
+                  <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkSoft }}>분석 중… {videoProgress}%</div>
+                  <div style={{ width: 120, height: 3, background: C.lineSoft, borderRadius: 2 }}>
+                    <div style={{ width: `${videoProgress}%`, height: "100%", background: C.red, borderRadius: 2, transition: "width 0.3s" }} />
+                  </div>
+                </div>
+              ) : videoAnalysis ? (
+                <div style={{ width: 180 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 8px", background: "#e8f5e9", border: `1.5px solid #66bb6a`, borderRadius: 2 }}>
+                    <Film size={12} color="#388e3c" />
+                    <span style={{ fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", color: "#2e7d32", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{videoName}</span>
+                    <button onClick={() => { setVideoAnalysis(""); setVideoName(""); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" }}>
+                      <Trash2 size={10} color="#c62828" />
+                    </button>
+                  </div>
+                  <button onClick={() => setVideoAnalysisOpen(v => !v)}
+                    style={{ marginTop: 4, width: "100%", display: "flex", alignItems: "center", gap: 4, background: "none", border: `1px solid ${C.lineSoft}`, borderRadius: 2, padding: "3px 7px", cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace", fontSize: 9.5, color: C.inkSoft }}>
+                    {videoAnalysisOpen ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                    분석 결과 {videoAnalysisOpen ? "숨기기" : "보기"}
+                  </button>
+                  <button onClick={() => videoFileRef.current?.click()}
+                    style={{ marginTop: 4, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 4, background: "none", border: `1px solid ${C.line}`, borderRadius: 2, padding: "3px 7px", cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace", fontSize: 9.5, color: C.inkSoft }}>
+                    다른 영상으로 교체
+                  </button>
+                </div>
+              ) : (
+                <div onClick={() => videoFileRef.current?.click()}
+                  style={{ width: 180, height: 76, border: `1.5px dashed ${C.line}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5, cursor: "pointer", background: "#fffdf8" }}>
+                  <Film size={20} color={C.inkSoft} />
+                  <span style={{ fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", color: C.inkSoft, textAlign: "center", lineHeight: 1.3 }}>영상 업로드<br/><span style={{ fontSize: 9, color: C.line }}>mp4 · mov · webm</span></span>
+                </div>
+              )}
+              <input ref={videoFileRef} type="file" accept="video/*" style={{ display: "none" }} onChange={handleVideoUpload} />
+            </div>
+
           </div>
+
+          {/* 영상 분석 결과 펼침 */}
+          {videoAnalysis && videoAnalysisOpen && (
+            <div style={{ borderTop: `1px solid ${C.lineSoft}`, padding: "10px 14px", background: "#f0f7f0" }}>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9.5, fontWeight: 700, color: "#388e3c", marginBottom: 6 }}>VIDEO ANALYSIS — 글콘티 생성 시 반영됨</div>
+              <pre style={{ margin: 0, fontSize: 11.5, lineHeight: 1.7, color: C.ink, whiteSpace: "pre-wrap", fontFamily: "sans-serif" }}>{videoAnalysis}</pre>
+            </div>
+          )}
         </div>
 
         {/* STEP 01 */}
