@@ -494,21 +494,17 @@ export default function StoryboardTool() {
         })),
         {
           type: "text",
-          text: `위 ${frames.length}장은 레퍼런스 영상에서 추출한 키프레임입니다(시간 순서).
-각 프레임을 분석해 아래 항목을 한국어로 작성하세요.
+          text: `위 ${frames.length}장은 레퍼런스 영상에서 시간 순서대로 추출한 키프레임입니다.
+이 영상을 글 콘티 형식으로 묘사하세요. 각 프레임(또는 연속된 프레임 묶음)을 하나의 컷으로 보고, 아래 형식으로 작성합니다.
 
-【샷 구성 패턴】
-- 주로 사용된 샷 사이즈 (L.S./F.S./바스트/업/클로즈업 등)
-- 주로 사용된 앵글 (eye-level/부감/앙각)
-- 카메라 무브 경향 (FIX/PAN/TILT/이동 등)
+출력 형식 (마크다운·설명 없이 이 형식만):
 
-【무드·스타일】
-- 조명 경향 (자연광/인공광, 하이키/로우키 등)
-- 색감·톤 (따뜻함/차가움, 채도 등)
-- 전체 영상 분위기 한 줄 요약
+≈[타임코드] [샷사이즈/앵글] | 화면: [배경·공간·조명·색감 묘사] | 피사체: [인물 위치·복장·표정·동작] | 카메라: [카메라 움직임] | 분위기: [감정·무드 한 줄]
 
-【연출 참고 포인트】
-이 영상의 카메라 언어를 새 콘티 작업에 반영할 때 핵심적으로 살려야 할 연출 패턴 3~5개를 간결하게 열거.`,
+예시:
+≈0:00 F.S./eye-level | 화면: 햇빛이 비스듬히 드는 낡은 복도, 먼지가 빛 속에 떠다님 | 피사체: 소녀가 복도 끝에 등을 보이고 서 있음, 흰 원피스 | 카메라: FIX | 분위기: 고요하고 쓸쓸한 기다림
+
+모든 컷을 빠짐없이 작성하고, 타임코드는 각 프레임의 대략적인 시각(초 단위)으로 표기.`,
         },
       ];
       const result = await callClaude(content, 1024);
@@ -525,10 +521,12 @@ export default function StoryboardTool() {
 
   const buildStage1Prompt = () => {
     const videoSection = videoAnalysis
-      ? `【레퍼런스 영상 분석】
-${videoAnalysis}
+      ? `【레퍼런스 영상 글콘티】
+아래는 사용자가 업로드한 레퍼런스 영상을 글콘티 형식으로 기술한 것이다.
+샷 사이즈·앵글·카메라 워킹·배경 묘사·분위기 등 연출 스타일을 참고하되,
+원문의 내용과 연출 의도를 최우선으로 하고 그 위에 이 스타일을 자연스럽게 녹여낸다.
 
-↑ 위 카메라 언어(샷 사이즈·앵글·무드)를 참고하되, 원문의 연출 의도를 최우선으로 한다.
+${videoAnalysis}
 
 `
       : "";
@@ -909,7 +907,7 @@ ${gkontiText}`;
           {/* 영상 분석 결과 펼침 */}
           {videoAnalysis && videoAnalysisOpen && (
             <div style={{ borderTop: `1px solid ${C.lineSoft}`, padding: "10px 14px", background: "#f0f7f0" }}>
-              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9.5, fontWeight: 700, color: "#388e3c", marginBottom: 6 }}>VIDEO ANALYSIS — 글콘티 생성 시 반영됨</div>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9.5, fontWeight: 700, color: "#388e3c", marginBottom: 6 }}>VIDEO 글콘티 — 글콘티 생성 시 스타일 반영됨</div>
               <pre style={{ margin: 0, fontSize: 11.5, lineHeight: 1.7, color: C.ink, whiteSpace: "pre-wrap", fontFamily: "sans-serif" }}>{videoAnalysis}</pre>
             </div>
           )}
