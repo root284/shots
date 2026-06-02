@@ -285,9 +285,6 @@ export default function StoryboardTool() {
 
   // ── OpenAI gpt-image-1 이미지 생성 ───────────────────────────────────────
   const generateCutImage = async (cut) => {
-    const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-    if (!apiKey) { setError("VITE_OPENAI_API_KEY 환경변수가 없습니다."); return; }
-
     setError("");
     setGeneratingCuts(prev => new Set([...prev, cut.no]));
     try {
@@ -306,9 +303,8 @@ export default function StoryboardTool() {
         });
         if (bgRef) formData.append("image[]", dataURLtoBlob(bgRef.dataURL), "bg.png");
 
-        const res = await fetch("https://api.openai.com/v1/images/edits", {
+        const res = await fetch("/api/openai/v1/images/edits", {
           method: "POST",
-          headers: { "Authorization": `Bearer ${apiKey}` },
           body: formData,
         });
         const json = await res.json();
@@ -316,9 +312,9 @@ export default function StoryboardTool() {
         b64 = json.data?.[0]?.b64_json;
       } else {
         // generations 엔드포인트
-        const res = await fetch("https://api.openai.com/v1/images/generations", {
+        const res = await fetch("/api/openai/v1/images/generations", {
           method: "POST",
-          headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ model: "gpt-image-1", prompt: cut.prompt || cut.desc || "", size: "1536x1024", n: 1 }),
         });
         const json = await res.json();
