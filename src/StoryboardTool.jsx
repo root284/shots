@@ -1,5 +1,5 @@
-import React, { useState, useRef, useId } from "react";
-import { Loader2, Copy, Check, Download, Clapperboard, AlertTriangle, Upload, ImagePlus, FileImage, UserCircle2, Image, Trash2, Wand2, Film, ChevronDown, ChevronUp } from "lucide-react";
+import React, { useState, useRef, useId, useEffect, useCallback } from "react";
+import { Loader2, Copy, Check, Download, Clapperboard, AlertTriangle, Upload, ImagePlus, FileImage, UserCircle2, Image, Trash2, Wand2, Film, ChevronDown, ChevronUp, Square, Save } from "lucide-react";
 
 const C = {
   paper: "#efe9dd", panel: "#f7f3ea", ink: "#16130f",
@@ -229,10 +229,11 @@ function triggerDownload(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-async function callClaude(content, maxTokens) {
+async function callClaude(content, maxTokens, signal) {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: API_HEADERS,
+    signal,
     body: JSON.stringify({
       model: "claude-sonnet-4-6",
       max_tokens: maxTokens,
@@ -243,6 +244,8 @@ async function callClaude(content, maxTokens) {
   if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`);
   return (json.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
 }
+
+const isAbort = (e) => e?.name === "AbortError" || e?.message === "Aborted";
 
 function readFileAsDataURL(file, onResult) {
   const reader = new FileReader();
@@ -255,7 +258,7 @@ const MAX_FRAMES = 20;
 const DIFF_W = 160; // 픽셀 diff 계산용 소형 캔버스 폭
 const OUT_W  = 512; // Claude 전송용 프레임 폭
 
-async function extractKeyFrames(file, onProgress) {
+async function extractKeyFrames(file, onProgress, signal) {
   const url = URL.createObjectURL(file);
   const video = document.createElement("video");
   video.src = url;
@@ -289,6 +292,7 @@ async function extractKeyFrames(file, onProgress) {
   let prev = null;
 
   for (let i = 0; i < times.length; i++) {
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     await seekTo(times[i]);
     dctx.drawImage(video, 0, 0, dc.width, dc.height);
     const cur = dctx.getImageData(0, 0, dc.width, dc.height).data;
@@ -351,6 +355,7 @@ async function extractKeyFrames(file, onProgress) {
 
   const result = [];
   for (let i = 0; i < finalTimes.length; i++) {
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     await seekTo(finalTimes[i]);
     octx.drawImage(video, 0, 0, oc.width, oc.height);
     result.push({ t: finalTimes[i], dataURL: oc.toDataURL("image/jpeg", 0.75) });
@@ -382,6 +387,13 @@ export default function StoryboardTool() {
   const [generatingCuts, setGeneratingCuts] = useState(new Set()); // 생성 중인 컷 번호
   const [generatingAll, setGeneratingAll] = useState(false);
 
+  // 중단 컨트롤러
+  const abortRef = useRef(null);
+  const cancelAll = () => { abortRef.current?.abort(); };
+
+  // 자동저장
+  const [savedAt, setSavedAt] = useState(null);
+
   // 영상 레퍼런스
   const [videoName, setVideoName] = useState("");
   const [videoAnalysis, setVideoAnalysis] = useState(""); // Claude 분석 결과
@@ -391,6 +403,44 @@ export default function StoryboardTool() {
   const videoFileRef = useRef(null);
 
   const step = gkontiText ? (cuts ? 3 : 2) : 1;
+  const isProcessing = loading1 || loading2 || generatingAll || generatingCuts.size > 0 || analyzingVideo;
+
+  // ── 마운트 시 복원 ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("sb_save");
+      if (!raw) return;
+      const d = JSON.parse(raw);
+      if (d.rawInput !== undefined) setRawInput(d.rawInput);
+      if (d.seconds !== undefined) setSeconds(d.seconds);
+      if (d.gkontiText) setGkontiText(d.gkontiText);
+      if (d.cuts) { setCuts(d.cuts); setMetadata(d.metadata ?? null); }
+      if (d.charRefs) setCharRefs(d.charRefs);
+      if (d.bgRef) setBgRef(d.bgRef);
+      if (d.videoAnalysis) { setVideoAnalysis(d.videoAnalysis); setVideoName(d.videoName ?? ""); }
+      if (d.savedAt) setSavedAt(d.savedAt);
+    } catch {}
+    try {
+      const imgs = localStorage.getItem("sb_images");
+      if (imgs) setPanelImages(JSON.parse(imgs));
+    } catch {}
+  }, []);
+
+  // ── 자동저장 (2초 디바운스) ──────────────────────────────────────────────────
+  const saveData = useCallback(() => {
+    try {
+      const now = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+      const d = { rawInput, seconds, gkontiText, cuts, metadata, charRefs, bgRef, videoAnalysis, videoName, savedAt: now };
+      localStorage.setItem("sb_save", JSON.stringify(d));
+      setSavedAt(now);
+    } catch {}
+    try { localStorage.setItem("sb_images", JSON.stringify(panelImages)); } catch {}
+  }, [rawInput, seconds, gkontiText, cuts, metadata, charRefs, bgRef, videoAnalysis, videoName, panelImages]);
+
+  useEffect(() => {
+    const t = setTimeout(saveData, 2000);
+    return () => clearTimeout(t);
+  }, [saveData]);
 
   // ── dataURL → Blob 변환 헬퍼 ──────────────────────────────────────────────
   const dataURLtoBlob = (dataURL) => {
@@ -404,6 +454,8 @@ export default function StoryboardTool() {
 
   // ── OpenAI gpt-image-1 이미지 생성 ───────────────────────────────────────
   const generateCutImage = async (cut) => {
+    abortRef.current = new AbortController();
+    const { signal } = abortRef.current;
     setError("");
     setGeneratingCuts(prev => new Set([...prev, cut.no]));
     try {
@@ -411,7 +463,6 @@ export default function StoryboardTool() {
       let b64;
 
       if (hasRefs) {
-        // edits 엔드포인트 — 레퍼런스 이미지 첨부
         const formData = new FormData();
         formData.append("model", "gpt-image-1");
         formData.append("prompt", cut.prompt || cut.desc || "");
@@ -422,19 +473,16 @@ export default function StoryboardTool() {
         });
         if (bgRef) formData.append("image[]", dataURLtoBlob(bgRef.dataURL), "bg.png");
 
-        const res = await fetch("/api/openai/v1/images/edits", {
-          method: "POST",
-          body: formData,
-        });
+        const res = await fetch("/api/openai/v1/images/edits", { method: "POST", body: formData, signal });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`);
         b64 = json.data?.[0]?.b64_json;
       } else {
-        // generations 엔드포인트
         const res = await fetch("/api/openai/v1/images/generations", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ model: "gpt-image-1", prompt: cut.prompt || cut.desc || "", size: "1536x1024", n: 1 }),
+          signal,
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`);
@@ -444,7 +492,7 @@ export default function StoryboardTool() {
       if (!b64) throw new Error("이미지 데이터 없음");
       setPanelImages(prev => ({ ...prev, [cut.no]: `data:image/png;base64,${b64}` }));
     } catch (e) {
-      setError(`CUT ${cut.no} 생성 실패: ${e.message}`);
+      if (!isAbort(e)) setError(`CUT ${cut.no} 생성 실패: ${e.message}`);
     } finally {
       setGeneratingCuts(prev => { const s = new Set(prev); s.delete(cut.no); return s; });
     }
@@ -452,8 +500,10 @@ export default function StoryboardTool() {
 
   const generateAllCuts = async () => {
     if (!cuts) return;
+    abortRef.current = new AbortController();
     setGeneratingAll(true);
     for (const cut of cuts) {
+      if (abortRef.current.signal.aborted) break;
       await generateCutImage(cut);
     }
     setGeneratingAll(false);
@@ -485,8 +535,10 @@ export default function StoryboardTool() {
     setAnalyzingVideo(true);
     setVideoProgress(0);
     setError("");
+    abortRef.current = new AbortController();
+    const { signal } = abortRef.current;
     try {
-      const frames = await extractKeyFrames(file, setVideoProgress);
+      const frames = await extractKeyFrames(file, setVideoProgress, signal);
       const content = [
         ...frames.map(f => ({
           type: "image",
@@ -507,11 +559,11 @@ export default function StoryboardTool() {
 모든 컷을 빠짐없이 작성하고, 타임코드는 각 프레임의 대략적인 시각(초 단위)으로 표기.`,
         },
       ];
-      const result = await callClaude(content, 1024);
+      const result = await callClaude(content, 1024, signal);
       setVideoAnalysis(result.trim());
       setVideoAnalysisOpen(true);
     } catch (err) {
-      setError(`영상 분석 실패: ${err.message}`);
+      if (!isAbort(err)) setError(`영상 분석 실패: ${err.message}`);
       setVideoName("");
     } finally {
       setAnalyzingVideo(false);
@@ -566,13 +618,14 @@ ${rawInput.trim()}`;
   };
 
   const runStage1 = async () => {
+    abortRef.current = new AbortController();
     setLoading1(true); setError(""); setGkontiText(""); setCuts(null); setPanelImages({});
     try {
-      const text = await callClaude(buildStage1Prompt(), 2048);
+      const text = await callClaude(buildStage1Prompt(), 2048, abortRef.current.signal);
       if (!text.trim()) throw new Error("빈 응답");
       setGkontiText(text.trim());
     } catch (e) {
-      setError(`1단계 실패: ${e.message}`);
+      if (!isAbort(e)) setError(`1단계 실패: ${e.message}`);
     } finally {
       setLoading1(false);
     }
@@ -618,9 +671,10 @@ ${gkontiText}`;
   };
 
   const runStage2 = async () => {
+    abortRef.current = new AbortController();
     setLoading2(true); setError(""); setCuts(null); setPanelImages({});
     try {
-      const text = await callClaude(buildStage2Prompt(), 4096);
+      const text = await callClaude(buildStage2Prompt(), 4096, abortRef.current.signal);
       const clean = text.replace(/```json|```/g, "").trim();
       const s = clean.indexOf("{"), e = clean.lastIndexOf("}");
       const parsed = JSON.parse(clean.slice(s, e + 1));
@@ -628,7 +682,7 @@ ${gkontiText}`;
       setCuts(parsed.cuts);
       setMetadata({ tone: parsed.tone, emotionArc: parsed.emotionArc });
     } catch (e) {
-      setError(`2단계 실패: ${e.message}`);
+      if (!isAbort(e)) setError(`2단계 실패: ${e.message}`);
     } finally {
       setLoading2(false);
     }
@@ -779,15 +833,35 @@ ${gkontiText}`;
             <Clapperboard size={26} color={C.red} />
             <h1 style={{ margin: 0, fontFamily: "'Zilla Slab', serif", fontWeight: 700, fontSize: 27, letterSpacing: -0.4 }}>글 → 콘티 시트</h1>
             <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.red, border: `1px solid ${C.red}`, padding: "2px 6px", borderRadius: 2, marginLeft: 4 }}>v1.2</span>
+            <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+              {savedAt && (
+                <span style={{ display: "flex", alignItems: "center", gap: 4, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: C.inkSoft }}>
+                  <Save size={11} /> {savedAt} 저장됨
+                </span>
+              )}
+              <button onClick={() => {
+                if (!confirm("작업 내용을 모두 초기화할까요?")) return;
+                localStorage.removeItem("sb_save"); localStorage.removeItem("sb_images");
+                location.reload();
+              }} style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: C.inkSoft, background: "none", border: `1px solid ${C.line}`, borderRadius: 2, padding: "3px 8px", cursor: "pointer" }}>
+                초기화
+              </button>
+            </span>
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 20, marginBottom: 24, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 20, marginBottom: 24, flexWrap: "wrap", alignItems: "center" }}>
           <StepBadge n="1" label="글 → 글콘티" active={step === 1} done={step > 1} />
           <span style={{ color: C.line, alignSelf: "center" }}>›</span>
           <StepBadge n="2" label="글콘티 → 콘티 시트" active={step === 2} done={step > 2} />
           <span style={{ color: C.line, alignSelf: "center" }}>›</span>
           <StepBadge n="3" label="이미지 업로드 · 저장" active={step === 3} done={false} />
+          {isProcessing && (
+            <button onClick={cancelAll}
+              style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, background: C.red, color: C.paper, border: "none", padding: "7px 14px", borderRadius: 2, fontFamily: "'Zilla Slab', serif", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+              <Square size={12} fill={C.paper} /> 중단
+            </button>
+          )}
         </div>
 
         {error && (
