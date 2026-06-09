@@ -1,12 +1,64 @@
 import React, { useState, useRef } from "react";
-import { Loader2, Film, Copy, Check, AlertTriangle, Square } from "lucide-react";
+import { Loader2, Film, Image, Copy, Check, AlertTriangle, Square, UploadCloud } from "lucide-react";
 
 const C = {
   paper: "#efe9dd", panel: "#f7f3ea", ink: "#16130f",
   inkSoft: "#5a5246", red: "#b3331f", line: "#ccc0a6", lineSoft: "#ddd4bf",
 };
 
+const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY;
 const isAbort = (e) => e?.name === "AbortError" || e?.message === "Aborted";
+
+const readFileAsDataURL = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = (e) => resolve(e.target.result);
+  reader.onerror = reject;
+  reader.readAsDataURL(file);
+});
+
+const IMAGE_PROMPT = `이 이미지(들)를 글콘티 형식으로 묘사하세요. 각 이미지를 하나의 컷으로 보고 아래 형식으로 작성합니다.
+
+출력 형식 (마크다운 헤더·설명 없이 이 형식만):
+≈[컷번호] [샷사이즈/앵글] | 화면: [배경·공간·조명·색감 묘사] | 피사체: [인물 위치·복장·표정·동작] | 카메라: [카메라 무브 추정·고정 여부] | 분위기: [감정·무드 한 줄]
+
+예시:
+≈1 M.F.S./eye-level | 화면: 스테인드글라스 창이 있는 고딕 성당 내부, 따뜻한 자연광 | 피사체: 금발 여성, 붉은 드레스, 측면으로 서 있음 | 카메라: 고정(FIX), 약간의 핸드헬드 느낌 | 분위기: 장엄하고 고독한 존재감
+
+주의사항:
+- 샷사이즈: EWS / WS / MWS / MFS / MS / MCU / CU / ECU 중 선택
+- 앵글: eye-level / low-angle / high-angle / bird's-eye / dutch-angle 중 선택
+- 카메라는 정지 이미지에서 추정 가능한 범위로만 묘사
+- 피사체가 없으면 "피사체: 없음"으로 표기
+- 이미지 순서대로 컷번호 부여`;
+
+async function analyzeImages(files, signal) {
+  const contents = await Promise.all(files.map(async (f) => {
+    const dataURL = await readFileAsDataURL(f);
+    const base64 = dataURL.split(",")[1];
+    const mediaType = f.type || "image/jpeg";
+    return { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } };
+  }));
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": ANTHROPIC_KEY,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-5",
+      max_tokens: 2048,
+      messages: [{ role: "user", content: [...contents, { type: "text", text: IMAGE_PROMPT }] }],
+    }),
+    signal,
+  });
+
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error?.message ?? "Claude 분석 실패");
+  return json.content?.[0]?.text ?? "";
+}
 
 export default function VideoToGkonti() {
   const [analyzing, setAnalyzing] = useState(false);
@@ -14,42 +66,60 @@ export default function VideoToGkonti() {
   const [result, setResult] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
-  const [videoName, setVideoName] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [fileType, setFileType] = useState(""); // "video" | "image"
+  // image preview thumbnails
+  const [previews, setPreviews] = useState([]); // [{ name, dataURL }]
   const fileRef = useRef(null);
   const abortRef = useRef(null);
 
+  const reset = () => { setResult(""); setFileName(""); setFileType(""); setError(""); setPreviews([]); };
+
   const handleUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
     e.target.value = "";
 
-    setVideoName(file.name);
+    const isImage = files[0].type.startsWith("image/");
+    const isVideo = files[0].type.startsWith("video/");
+    if (!isImage && !isVideo) { setError("영상(mp4·mov·webm) 또는 이미지(jpg·png·webp) 파일만 지원합니다."); return; }
+
+    setFileName(files.length === 1 ? files[0].name : `이미지 ${files.length}장`);
+    setFileType(isImage ? "image" : "video");
     setResult("");
     setError("");
+    setPreviews([]);
     setAnalyzing(true);
     setProgress(0);
     abortRef.current = new AbortController();
     const { signal } = abortRef.current;
 
     try {
-      const timer = setInterval(() =>
-        setProgress(p => p < 88 ? p + 1 : p), 800);
-
-      const res = await fetch("/api/gemini/analyze", {
-        method: "POST",
-        headers: { "Content-Type": file.type || "video/mp4" },
-        body: file,
-        signal,
-      });
-      clearInterval(timer);
-      setProgress(95);
-
-      const json = await res.json();
-      if (!res.ok || json.error) throw new Error(json.error ?? "분석 실패");
-      setResult(json.text.trim());
+      if (isImage) {
+        // 썸네일 미리보기 생성
+        const thumbs = await Promise.all(files.map(async f => ({ name: f.name, dataURL: await readFileAsDataURL(f) })));
+        setPreviews(thumbs);
+        setProgress(30);
+        const text = await analyzeImages(files, signal);
+        setProgress(100);
+        setResult(text.trim());
+      } else {
+        const timer = setInterval(() => setProgress(p => p < 88 ? p + 1 : p), 800);
+        const res = await fetch("/api/gemini/analyze", {
+          method: "POST",
+          headers: { "Content-Type": files[0].type || "video/mp4" },
+          body: files[0],
+          signal,
+        });
+        clearInterval(timer);
+        setProgress(95);
+        const json = await res.json();
+        if (!res.ok || json.error) throw new Error(json.error ?? "분석 실패");
+        setResult(json.text.trim());
+      }
     } catch (err) {
       if (!isAbort(err)) setError(err.message);
-      if (isAbort(err)) setVideoName("");
+      if (isAbort(err)) reset();
     } finally {
       setAnalyzing(false);
       setProgress(0);
@@ -61,6 +131,8 @@ export default function VideoToGkonti() {
     setCopied(true);
     setTimeout(() => setCopied(false), 1800);
   };
+
+  const badgeLabel = fileType === "image" ? "by Claude" : "by Gemini";
 
   return (
     <div style={{ minHeight: "100vh", background: C.paper, color: C.ink, backgroundImage: "radial-gradient(#0000000a 0.5px, transparent 0.5px)", backgroundSize: "5px 5px", padding: "36px 20px 64px", fontFamily: "sans-serif" }}>
@@ -76,36 +148,55 @@ export default function VideoToGkonti() {
         {/* 헤더 */}
         <div style={{ borderBottom: `2px solid ${C.ink}`, paddingBottom: 14, marginBottom: 28, display: "flex", alignItems: "center", gap: 10 }}>
           <Film size={24} color={C.red} />
-          <h1 style={{ margin: 0, fontFamily: "'Zilla Slab', serif", fontWeight: 700, fontSize: 24, letterSpacing: -0.3 }}>영상 → 글콘티</h1>
-          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: C.red, border: `1px solid ${C.red}`, padding: "2px 6px", borderRadius: 2 }}>by Gemini</span>
+          <h1 style={{ margin: 0, fontFamily: "'Zilla Slab', serif", fontWeight: 700, fontSize: 24, letterSpacing: -0.3 }}>영상·이미지 → 글콘티</h1>
+          {result && (
+            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: C.red, border: `1px solid ${C.red}`, padding: "2px 6px", borderRadius: 2 }}>{badgeLabel}</span>
+          )}
           <a href="/" style={{ marginLeft: "auto", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: C.inkSoft, textDecoration: "none", border: `1px solid ${C.line}`, padding: "3px 8px", borderRadius: 2 }}>← 콘티 시트 툴</a>
         </div>
 
         <p style={{ fontSize: 13.5, color: C.inkSoft, lineHeight: 1.7, marginBottom: 28 }}>
-          영상을 업로드하면 Gemini가 씬별 카메라 워킹·샷 사이즈·분위기를 분석해
-          글콘티 형식으로 변환합니다.
+          영상을 올리면 <strong>Gemini</strong>가 씬별 카메라 워킹·샷 사이즈·분위기를 분석하고,
+          이미지를 올리면 <strong>Claude</strong>가 각 컷을 글콘티 형식으로 묘사합니다.<br />
+          이미지는 여러 장을 동시에 올리면 순서대로 컷으로 처리합니다.
         </p>
 
         {/* 업로드 영역 */}
         {!analyzing && !result && (
           <div onClick={() => fileRef.current?.click()}
-            style={{ border: `2px dashed ${C.line}`, borderRadius: 4, padding: "48px 24px", display: "flex", flexDirection: "column", alignItems: "center", gap: 12, cursor: "pointer", background: C.panel, animation: "fadeUp 0.3s ease both" }}>
-            <Film size={36} color={C.inkSoft} />
-            <div style={{ fontFamily: "'Zilla Slab', serif", fontSize: 17, fontWeight: 600 }}>영상 파일을 클릭해서 업로드</div>
-            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkSoft }}>mp4 · mov · webm</div>
+            style={{ border: `2px dashed ${C.line}`, borderRadius: 4, padding: "48px 24px", display: "flex", flexDirection: "column", alignItems: "center", gap: 14, cursor: "pointer", background: C.panel, animation: "fadeUp 0.3s ease both" }}>
+            <UploadCloud size={36} color={C.inkSoft} />
+            <div style={{ fontFamily: "'Zilla Slab', serif", fontSize: 17, fontWeight: 600 }}>파일을 클릭해서 업로드</div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkSoft, background: C.lineSoft, padding: "3px 8px", borderRadius: 2 }}>🎬 mp4 · mov · webm</span>
+              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkSoft, background: C.lineSoft, padding: "3px 8px", borderRadius: 2 }}>🖼 jpg · png · webp (여러 장 가능)</span>
+            </div>
           </div>
         )}
-        <input ref={fileRef} type="file" accept="video/*" style={{ display: "none" }} onChange={handleUpload} />
+        <input ref={fileRef} type="file" accept="video/*,image/*" multiple style={{ display: "none" }} onChange={handleUpload} />
 
         {/* 분석 중 */}
         {analyzing && (
           <div style={{ border: `1.5px solid ${C.line}`, borderRadius: 4, padding: "36px 24px", background: C.panel, display: "flex", flexDirection: "column", alignItems: "center", gap: 14, animation: "fadeUp 0.3s ease both" }}>
+            {/* 이미지 미리보기 */}
+            {previews.length > 0 && (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+                {previews.map((p, i) => (
+                  <img key={i} src={p.dataURL} alt={p.name}
+                    style={{ width: 72, height: 72, objectFit: "cover", border: `1.5px solid ${C.line}`, borderRadius: 3 }} />
+                ))}
+              </div>
+            )}
             <Loader2 size={28} color={C.red} style={{ animation: "spin 1s linear infinite" }} />
-            <div style={{ fontFamily: "'Zilla Slab', serif", fontSize: 15, fontWeight: 600 }}>{videoName} 분석 중…</div>
-            <div style={{ width: 260, height: 4, background: C.lineSoft, borderRadius: 2 }}>
-              <div style={{ width: `${progress}%`, height: "100%", background: C.red, borderRadius: 2, transition: "width 0.6s ease" }} />
-            </div>
-            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkSoft }}>{progress}% — 업로드 · 처리 중</div>
+            <div style={{ fontFamily: "'Zilla Slab', serif", fontSize: 15, fontWeight: 600 }}>{fileName} 분석 중…</div>
+            {fileType === "video" && (
+              <>
+                <div style={{ width: 260, height: 4, background: C.lineSoft, borderRadius: 2 }}>
+                  <div style={{ width: `${progress}%`, height: "100%", background: C.red, borderRadius: 2, transition: "width 0.6s ease" }} />
+                </div>
+                <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkSoft }}>{progress}% — 업로드 · 처리 중</div>
+              </>
+            )}
             <button onClick={() => abortRef.current?.abort()}
               style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "transparent", color: C.red, border: `1.5px solid ${C.red}`, padding: "6px 14px", borderRadius: 2, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
               <Square size={10} fill={C.red} /> 중단
@@ -124,10 +215,21 @@ export default function VideoToGkonti() {
         {/* 결과 */}
         {result && !analyzing && (
           <div style={{ animation: "fadeUp 0.35s ease both" }}>
+            {/* 이미지 미리보기 (결과 화면에서도 표시) */}
+            {previews.length > 0 && (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                {previews.map((p, i) => (
+                  <img key={i} src={p.dataURL} alt={p.name}
+                    style={{ width: 72, height: 72, objectFit: "cover", border: `1.5px solid ${C.line}`, borderRadius: 3 }} />
+                ))}
+              </div>
+            )}
+
             <div style={{ border: `1.5px solid ${C.ink}`, borderRadius: 4, overflow: "hidden" }}>
               <div style={{ background: C.ink, padding: "10px 14px", display: "flex", alignItems: "center", gap: 8 }}>
-                <Film size={13} color={C.paper} />
-                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, fontWeight: 700, color: C.paper, flex: 1 }}>{videoName}</span>
+                {fileType === "image" ? <Image size={13} color={C.paper} /> : <Film size={13} color={C.paper} />}
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, fontWeight: 700, color: C.paper, flex: 1 }}>{fileName}</span>
+                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9.5, color: "#ffffff88", marginRight: 8 }}>{badgeLabel}</span>
                 <button onClick={copy}
                   style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, fontWeight: 600, background: copied ? "#4caf50" : "transparent", color: C.paper, border: `1px solid ${copied ? "#4caf50" : "#ffffff44"}`, padding: "3px 10px", borderRadius: 2, cursor: "pointer" }}>
                   {copied ? <Check size={11} /> : <Copy size={11} />}
@@ -140,15 +242,14 @@ export default function VideoToGkonti() {
             </div>
 
             <div style={{ marginTop: 14, display: "flex", gap: 10 }}>
-              <button onClick={() => { setResult(""); setVideoName(""); setError(""); }}
+              <button onClick={reset}
                 style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkSoft, background: "none", border: `1px solid ${C.line}`, borderRadius: 2, padding: "6px 12px", cursor: "pointer" }}>
-                새 영상 분석하기
+                새로 분석하기
               </button>
               <button onClick={() => {
-                // 기존 저장 데이터에 영상 분석 결과 병합 후 이동
                 try {
                   const prev = JSON.parse(localStorage.getItem("sb_save") || "{}");
-                  localStorage.setItem("sb_save", JSON.stringify({ ...prev, videoAnalysis: result, videoName }));
+                  localStorage.setItem("sb_save", JSON.stringify({ ...prev, videoAnalysis: result, videoName: fileName }));
                 } catch {}
                 window.location.href = "/";
               }}

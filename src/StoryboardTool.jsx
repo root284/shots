@@ -869,103 +869,110 @@ ${gkontiText}`;
             <span style={{ fontFamily: "'Zilla Slab', serif", fontWeight: 600, fontSize: 15 }}>캐릭터 시트 · 배경 레퍼런스</span>
             <span style={{ marginLeft: "auto", fontSize: 11, color: C.inkSoft }}>이름이 프롬프트에 참조 문구로 자동 삽입됨</span>
           </div>
-          <div style={{ padding: 14, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
+          <div style={{ padding: 14, display: "flex", gap: 0, alignItems: "stretch" }}>
 
-            {/* 캐릭터 시트 목록 */}
-            {charRefs.map(c => (
-              <div key={c.id} style={{ position: "relative", width: 110, flexShrink: 0 }}>
-                <div style={{ position: "relative", width: 110, height: 110, border: `1.5px solid ${C.ink}`, overflow: "hidden", background: "#ddd5c2" }}>
-                  <img src={c.dataURL} alt={c.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                  <button onClick={() => setCharRefs(prev => prev.filter(x => x.id !== c.id))}
-                    style={{ position: "absolute", top: 3, right: 3, background: C.red, border: "none", borderRadius: 2, cursor: "pointer", display: "flex", padding: 2 }}>
-                    <Trash2 size={10} color={C.paper} />
-                  </button>
+            {/* 공통 섹션 타이틀 스타일 */}
+            {(() => {
+              const BOX = 120;
+              const labelStyle = { fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", color: C.inkSoft, fontWeight: 600, marginBottom: 8 };
+              const dividerStyle = { width: 1, background: C.lineSoft, alignSelf: "stretch", margin: "0 16px" };
+              const addBox = (icon, lines) => (
+                <div style={{ width: BOX, height: BOX, border: `1.5px dashed ${C.line}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5, cursor: "pointer", background: "#fffdf8", flexShrink: 0 }}>
+                  {icon}
+                  <span style={{ fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", color: C.inkSoft, textAlign: "center", lineHeight: 1.4 }}>{lines}</span>
                 </div>
-                <input
-                  value={c.name}
-                  onChange={e => setCharRefs(prev => prev.map(x => x.id === c.id ? { ...x, name: e.target.value } : x))}
-                  style={{ marginTop: 4, width: "100%", fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", color: C.ink, background: "#fffdf8", border: `1px solid ${C.lineSoft}`, borderRadius: 2, padding: "2px 5px", outline: "none" }}
-                />
-              </div>
-            ))}
+              );
 
-            {/* 캐릭터 추가 버튼 */}
-            <div onClick={() => charFileRef.current?.click()}
-              style={{ width: 110, height: 110, border: `1.5px dashed ${C.line}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5, cursor: "pointer", flexShrink: 0, background: "#fffdf8" }}>
-              <UserCircle2 size={22} color={C.inkSoft} />
-              <span style={{ fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", color: C.inkSoft, textAlign: "center", lineHeight: 1.3 }}>캐릭터 시트<br/>추가</span>
-            </div>
-            <input ref={charFileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={addCharRef} />
-
-            {/* 구분선 */}
-            <div style={{ width: 1, background: C.lineSoft, alignSelf: "stretch", margin: "0 4px" }} />
-
-            {/* 배경 레퍼런스 */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <div style={{ fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", color: C.inkSoft, fontWeight: 600 }}>배경 레퍼런스</div>
-              {bgRef ? (
-                <div style={{ position: "relative", width: 180 }}>
-                  <div style={{ position: "relative", width: 180, height: 102, border: `1.5px solid ${C.ink}`, overflow: "hidden", background: "#ddd5c2" }}>
-                    <img src={bgRef.dataURL} alt="bg" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                    <button onClick={() => setBgRef(null)}
-                      style={{ position: "absolute", top: 3, right: 3, background: C.red, border: "none", borderRadius: 2, cursor: "pointer", display: "flex", padding: 2 }}>
-                      <Trash2 size={10} color={C.paper} />
-                    </button>
+              return (<>
+                {/* ── 캐릭터 시트 ── */}
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  <div style={labelStyle}>캐릭터 시트</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {charRefs.map(c => (
+                      <div key={c.id} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <div style={{ position: "relative", width: BOX, height: BOX, border: `1.5px solid ${C.ink}`, overflow: "hidden", background: "#ddd5c2" }}>
+                          <img src={c.dataURL} alt={c.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                          <button onClick={() => setCharRefs(prev => prev.filter(x => x.id !== c.id))}
+                            style={{ position: "absolute", top: 3, right: 3, background: C.red, border: "none", borderRadius: 2, cursor: "pointer", display: "flex", padding: 2 }}>
+                            <Trash2 size={10} color={C.paper} />
+                          </button>
+                        </div>
+                        <input value={c.name}
+                          onChange={e => setCharRefs(prev => prev.map(x => x.id === c.id ? { ...x, name: e.target.value } : x))}
+                          style={{ width: BOX, fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", color: C.ink, background: "#fffdf8", border: `1px solid ${C.lineSoft}`, borderRadius: 2, padding: "2px 5px", outline: "none" }}
+                        />
+                      </div>
+                    ))}
+                    <div onClick={() => charFileRef.current?.click()}>
+                      {addBox(<UserCircle2 size={22} color={C.inkSoft} />, "추가")}
+                    </div>
+                    <input ref={charFileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={addCharRef} />
                   </div>
                 </div>
-              ) : (
-                <div onClick={() => bgFileRef.current?.click()}
-                  style={{ width: 180, height: 102, border: `1.5px dashed ${C.line}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5, cursor: "pointer", background: "#fffdf8" }}>
-                  <Image size={22} color={C.inkSoft} />
-                  <span style={{ fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", color: C.inkSoft }}>배경 이미지 추가</span>
-                </div>
-              )}
-              <input ref={bgFileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={addBgRef} />
-            </div>
 
-            {/* 구분선 */}
-            <div style={{ width: 1, background: C.lineSoft, alignSelf: "stretch", margin: "0 4px" }} />
+                <div style={dividerStyle} />
 
-            {/* 영상 레퍼런스 */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 180 }}>
-              <div style={{ fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", color: C.inkSoft, fontWeight: 600 }}>영상 레퍼런스 <span style={{ fontWeight: 400 }}>(선택)</span></div>
+                {/* ── 배경 레퍼런스 ── */}
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  <div style={labelStyle}>배경 레퍼런스</div>
+                  {bgRef ? (
+                    <div style={{ position: "relative", width: BOX, height: BOX, border: `1.5px solid ${C.ink}`, overflow: "hidden", background: "#ddd5c2" }}>
+                      <img src={bgRef.dataURL} alt="bg" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      <button onClick={() => setBgRef(null)}
+                        style={{ position: "absolute", top: 3, right: 3, background: C.red, border: "none", borderRadius: 2, cursor: "pointer", display: "flex", padding: 2 }}>
+                        <Trash2 size={10} color={C.paper} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div onClick={() => bgFileRef.current?.click()}>
+                      {addBox(<Image size={22} color={C.inkSoft} />, "추가")}
+                    </div>
+                  )}
+                  <input ref={bgFileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={addBgRef} />
+                </div>
 
-              {analyzingVideo ? (
-                <div style={{ width: 180, height: 76, border: `1.5px solid ${C.line}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, background: "#fffdf8" }}>
-                  <Loader2 size={16} color={C.inkSoft} style={{ animation: "spin 1s linear infinite" }} />
-                  <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkSoft }}>분석 중… {videoProgress}%</div>
-                  <div style={{ width: 120, height: 3, background: C.lineSoft, borderRadius: 2 }}>
-                    <div style={{ width: `${videoProgress}%`, height: "100%", background: C.red, borderRadius: 2, transition: "width 0.3s" }} />
-                  </div>
+                <div style={dividerStyle} />
+
+                {/* ── 영상 레퍼런스 ── */}
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  <div style={labelStyle}>영상 레퍼런스 <span style={{ fontWeight: 400 }}>(선택)</span></div>
+                  {analyzingVideo ? (
+                    <div style={{ width: BOX, height: BOX, border: `1.5px solid ${C.line}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, background: "#fffdf8" }}>
+                      <Loader2 size={16} color={C.inkSoft} style={{ animation: "spin 1s linear infinite" }} />
+                      <div style={{ fontSize: 10, fontFamily: "'IBM Plex Mono', monospace", color: C.inkSoft }}>{videoProgress}%</div>
+                      <div style={{ width: 80, height: 3, background: C.lineSoft, borderRadius: 2 }}>
+                        <div style={{ width: `${videoProgress}%`, height: "100%", background: C.red, borderRadius: 2, transition: "width 0.3s" }} />
+                      </div>
+                    </div>
+                  ) : videoAnalysis ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, width: BOX }}>
+                      <div style={{ width: BOX, height: BOX, border: `1.5px solid #66bb6a`, background: "#e8f5e9", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5, position: "relative" }}>
+                        <Film size={22} color="#388e3c" />
+                        <span style={{ fontSize: 9.5, fontFamily: "'IBM Plex Mono', monospace", color: "#2e7d32", textAlign: "center", lineHeight: 1.3, padding: "0 6px", overflow: "hidden", wordBreak: "break-all" }}>{videoName}</span>
+                        <button onClick={() => { setVideoAnalysis(""); setVideoName(""); }}
+                          style={{ position: "absolute", top: 3, right: 3, background: C.red, border: "none", borderRadius: 2, cursor: "pointer", display: "flex", padding: 2 }}>
+                          <Trash2 size={10} color={C.paper} />
+                        </button>
+                      </div>
+                      <button onClick={() => setVideoAnalysisOpen(v => !v)}
+                        style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4, background: "none", border: `1px solid ${C.lineSoft}`, borderRadius: 2, padding: "3px 0", cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace", fontSize: 9.5, color: C.inkSoft }}>
+                        {videoAnalysisOpen ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                        {videoAnalysisOpen ? "숨기기" : "결과 보기"}
+                      </button>
+                      <button onClick={() => videoFileRef.current?.click()}
+                        style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4, background: "none", border: `1px solid ${C.line}`, borderRadius: 2, padding: "3px 0", cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace", fontSize: 9.5, color: C.inkSoft }}>
+                        교체
+                      </button>
+                    </div>
+                  ) : (
+                    <div onClick={() => videoFileRef.current?.click()}>
+                      {addBox(<Film size={22} color={C.inkSoft} />, <>영상 업로드<br/><span style={{ fontSize: 9, color: C.line }}>mp4 · mov · webm</span></>)}
+                    </div>
+                  )}
+                  <input ref={videoFileRef} type="file" accept="video/*" style={{ display: "none" }} onChange={handleVideoUpload} />
                 </div>
-              ) : videoAnalysis ? (
-                <div style={{ width: 180 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 8px", background: "#e8f5e9", border: `1.5px solid #66bb6a`, borderRadius: 2 }}>
-                    <Film size={12} color="#388e3c" />
-                    <span style={{ fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", color: "#2e7d32", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{videoName}</span>
-                    <button onClick={() => { setVideoAnalysis(""); setVideoName(""); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" }}>
-                      <Trash2 size={10} color="#c62828" />
-                    </button>
-                  </div>
-                  <button onClick={() => setVideoAnalysisOpen(v => !v)}
-                    style={{ marginTop: 4, width: "100%", display: "flex", alignItems: "center", gap: 4, background: "none", border: `1px solid ${C.lineSoft}`, borderRadius: 2, padding: "3px 7px", cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace", fontSize: 9.5, color: C.inkSoft }}>
-                    {videoAnalysisOpen ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
-                    분석 결과 {videoAnalysisOpen ? "숨기기" : "보기"}
-                  </button>
-                  <button onClick={() => videoFileRef.current?.click()}
-                    style={{ marginTop: 4, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 4, background: "none", border: `1px solid ${C.line}`, borderRadius: 2, padding: "3px 7px", cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace", fontSize: 9.5, color: C.inkSoft }}>
-                    다른 영상으로 교체
-                  </button>
-                </div>
-              ) : (
-                <div onClick={() => videoFileRef.current?.click()}
-                  style={{ width: 180, height: 76, border: `1.5px dashed ${C.line}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5, cursor: "pointer", background: "#fffdf8" }}>
-                  <Film size={20} color={C.inkSoft} />
-                  <span style={{ fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", color: C.inkSoft, textAlign: "center", lineHeight: 1.3 }}>영상 업로드<br/><span style={{ fontSize: 9, color: C.line }}>mp4 · mov · webm</span></span>
-                </div>
-              )}
-              <input ref={videoFileRef} type="file" accept="video/*" style={{ display: "none" }} onChange={handleVideoUpload} />
-            </div>
+              </>);
+            })()}
 
           </div>
 
