@@ -90,9 +90,9 @@ async function generateAngles(req, res) {
     sceneDescription = body.sceneDescription || "";
   }
 
-  if (!sceneDescription.trim()) {
+  if (!sceneDescription.trim() && !imageBase64) {
     res.writeHead(400, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "장면 설명이 필요합니다." }));
+    res.end(JSON.stringify({ error: "장면 설명 또는 이미지를 입력해주세요." }));
     return;
   }
 
@@ -104,15 +104,20 @@ async function generateAngles(req, res) {
   ];
 
   const systemPrompt = `You are a professional cinematographer and storyboard artist.
-Analyze the scene description and generate exactly 9 cinematic angle cards.
-Select from this pool: ${ANGLE_POOL.join(", ")}.
-Weight your selection based on scene emotion/tone (e.g., more Close-Ups for emotional scenes, Establishing/Wide for action/location shots).
+Your task: given a scene (from an image, text description, or both), imagine you are directing that exact same scene and generate 9 different cinematic angle cards — each one a different way to shoot the SAME scene.
+
+If an image is provided, analyze it carefully: identify the subjects, setting, lighting, mood, spatial relationships, and narrative context. Then propose 9 alternative camera angles that could capture this scene.
+
+Select angles from this pool: ${ANGLE_POOL.join(", ")}.
+Weight your selection based on scene emotion/tone (e.g., more Close-Ups for emotional scenes, Establishing/Wide for location/action shots).
 Avoid repetition — choose a diverse, dramatically effective set of 9 angles.
+
+For each angle, the imagePrompt must faithfully preserve the scene's subjects, environment, lighting, and mood — only the camera angle/framing changes.
 
 Respond with a JSON array of exactly 9 objects, each with:
 - "angleName": string (angle name from the pool above)
-- "koreanDescription": string (2-3 lines in Korean describing the visual and directorial intent)
-- "imagePrompt": string (English prompt for FLUX image generation; always end with ", black and white storyboard sketch, rough pencil lines, cinematic composition, professional storyboard art")
+- "koreanDescription": string (2-3 lines in Korean describing the visual and directorial intent for THIS angle)
+- "imagePrompt": string (English prompt for FLUX image generation describing the scene from this specific angle; always end with ", black and white storyboard sketch, rough pencil lines, cinematic composition, professional storyboard art")
 
 Return ONLY the JSON array, no markdown, no explanation.`;
 
@@ -123,12 +128,12 @@ Return ONLY the JSON array, no markdown, no explanation.`;
       type: "image",
       source: { type: "base64", media_type: imageMime, data: imageBase64 }
     });
-    userContent.push({
-      type: "text",
-      text: `Style reference image attached. Apply the visual style of this reference image in the image prompts.\nScene description: ${sceneDescription}`
-    });
+    const textPart = sceneDescription.trim()
+      ? `Reference image above shows the scene. Additional context: ${sceneDescription}\n\nGenerate 9 different cinematic angles for shooting this same scene.`
+      : `Reference image above shows the scene. Analyze it and generate 9 different cinematic angles for shooting this same scene.`;
+    userContent.push({ type: "text", text: textPart });
   } else {
-    userContent.push({ type: "text", text: `Scene description: ${sceneDescription}` });
+    userContent.push({ type: "text", text: `Scene description: ${sceneDescription}\n\nGenerate 9 different cinematic angles for shooting this scene.` });
   }
 
   const apiRes = await fetch("https://api.anthropic.com/v1/messages", {

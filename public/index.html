@@ -100,8 +100,8 @@
     cursor: pointer;
     text-align: center;
     transition: border-color 0.15s, background 0.15s;
-    min-width: 200px;
-    width: 200px;
+    min-width: 220px;
+    width: 220px;
     flex-shrink: 0;
   }
   .upload-area:hover { border-color: var(--accent-dim); background: var(--surface2); }
@@ -390,17 +390,17 @@
 </header>
 
 <div class="input-panel">
-  <div class="input-group">
-    <label for="scene-input">장면 설명</label>
-    <textarea id="scene-input" placeholder="장면을 설명해주세요. 예: 폭우가 쏟아지는 새벽, 형사가 골목 끝 가로등 아래 서 있다. 멀리서 발소리가 들린다." rows="4"></textarea>
-  </div>
-
   <label class="upload-area" id="upload-area">
     <input type="file" id="image-input" accept="image/*">
-    <span class="upload-label">스타일 레퍼런스</span>
+    <span class="upload-label">장면 이미지</span>
     <img class="upload-preview" id="upload-preview" alt="preview">
-    <span class="upload-hint" id="upload-hint">이미지 클릭하여 첨부<br>(선택 사항)</span>
+    <span class="upload-hint" id="upload-hint">이미지를 올리면 해당 장면을<br>9가지 앵글로 재구성합니다</span>
   </label>
+
+  <div class="input-group">
+    <label for="scene-input">장면 설명 <span style="color:var(--text-muted);font-weight:400">(선택)</span></label>
+    <textarea id="scene-input" placeholder="이미지 없이 텍스트만으로도 생성 가능합니다. 이미지와 함께 쓰면 추가 맥락을 제공할 수 있습니다." rows="4"></textarea>
+  </div>
 
   <button class="btn-primary" id="generate-btn" onclick="generateAngles()">앵글 생성</button>
 </div>
@@ -423,16 +423,13 @@
       <div class="grid-line-cell"></div><div class="grid-line-cell"></div><div class="grid-line-cell"></div>
     </div>
     <div class="empty-state-title">장면을 입력하세요</div>
-    <div class="empty-state-sub">장면 설명을 입력하고 "앵글 생성"을 누르면<br>9개의 시네마틱 앵글 카드를 생성합니다.</div>
+    <div class="empty-state-sub">이미지를 올리거나 장면을 설명하면<br>같은 장면을 9가지 시네마틱 앵글로 재구성합니다.</div>
   </div>
   <div class="cards-grid" id="cards-grid" style="display:none"></div>
 </div>
 
 <script>
 let currentAngles = [];
-let styleImageBase64 = null;
-let styleImageMime = null;
-let hasStyleImage = false;
 
 // ── 이미지 업로드 ──────────────────────────────────────────────────────────────
 document.getElementById('image-input').addEventListener('change', (e) => {
@@ -440,10 +437,7 @@ document.getElementById('image-input').addEventListener('change', (e) => {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = (ev) => {
-    const dataUrl = ev.target.result;
-    styleImageBase64 = dataUrl.split(',')[1];
-    styleImageMime = file.type;
-    document.getElementById('upload-preview').src = dataUrl;
+    document.getElementById('upload-preview').src = ev.target.result;
     document.getElementById('upload-preview').classList.add('visible');
     document.getElementById('upload-hint').style.display = 'none';
     document.getElementById('upload-area').classList.add('has-image');
@@ -465,11 +459,18 @@ function setStatus(type, msg) {
 // ── 앵글 생성 ──────────────────────────────────────────────────────────────────
 async function generateAngles() {
   const sceneInput = document.getElementById('scene-input').value.trim();
-  if (!sceneInput) { setStatus('error', '장면 설명을 입력해주세요.'); return; }
+  const imageFile = document.getElementById('image-input').files[0];
+  if (!sceneInput && !imageFile) {
+    setStatus('error', '이미지를 올리거나 장면 설명을 입력해주세요.');
+    return;
+  }
 
   const btn = document.getElementById('generate-btn');
   btn.disabled = true;
-  setStatus('loading', 'Claude가 9개 앵글을 분석 중입니다...');
+  const loadingMsg = imageFile
+    ? 'Claude가 이미지를 분석하고 9개 앵글을 구성 중입니다...'
+    : 'Claude가 9개 앵글을 분석 중입니다...';
+  setStatus('loading', loadingMsg);
   document.getElementById('empty-state').style.display = 'none';
   document.getElementById('cards-grid').style.display = 'none';
   document.getElementById('toolbar').classList.remove('visible');
@@ -477,7 +478,6 @@ async function generateAngles() {
   try {
     const fd = new FormData();
     fd.append('sceneDescription', sceneInput);
-    const imageFile = document.getElementById('image-input').files[0];
     if (imageFile) fd.append('image', imageFile);
 
     const res = await fetch('/api/generate-angles', { method: 'POST', body: fd });
@@ -485,7 +485,6 @@ async function generateAngles() {
     if (!res.ok) throw new Error(data.error || 'API 오류');
 
     currentAngles = data.angles;
-    hasStyleImage = data.hasStyleImage;
     renderCards(data.angles);
     setStatus('', '');
   } catch (err) {
@@ -560,16 +559,10 @@ async function generateImage(index) {
   placeholder.innerHTML = `<div class="card-placeholder-inner"><div class="card-spinner"></div></div>`;
 
   try {
-    const body = { prompt: angle.imagePrompt };
-    if (hasStyleImage && styleImageBase64) {
-      body.styleImageBase64 = styleImageBase64;
-      body.styleImageMimeType = styleImageMime;
-    }
-
     const res = await fetch('/api/generate-image', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ prompt: angle.imagePrompt }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || '이미지 생성 실패');
