@@ -20,6 +20,7 @@
     --success: #5ea85e;
     --radius: 6px;
     --card-w: 340px;
+    --box-h: 124px;
   }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -97,8 +98,8 @@
     font-size: 14px;
     line-height: 1.6;
     padding: 12px 14px;
-    resize: vertical;
-    min-height: 88px;
+    resize: none;
+    height: var(--box-h);
     outline: none;
     transition: border-color 0.15s;
   }
@@ -109,13 +110,17 @@
     background: var(--surface);
     border: 1px dashed var(--border);
     border-radius: var(--radius);
-    padding: 16px;
     cursor: pointer;
     text-align: center;
     transition: border-color 0.15s, background 0.15s;
-    min-width: 220px;
     width: 220px;
+    aspect-ratio: 16 / 9;
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
   }
   .upload-area:hover { border-color: var(--accent-dim); background: var(--surface2); }
   .upload-area.has-image { border-style: solid; border-color: var(--accent-dim); }
@@ -123,10 +128,14 @@
   .upload-area .upload-hint {
     font-size: 11px;
     color: var(--text-muted);
+    line-height: 1.6;
+    padding: 0 12px;
   }
   .upload-preview {
+    position: absolute;
+    inset: 0;
     width: 100%;
-    max-height: 80px;
+    height: 100%;
     object-fit: cover;
     border-radius: 4px;
     display: none;
@@ -147,7 +156,7 @@
     cursor: pointer;
     transition: opacity 0.15s;
     white-space: nowrap;
-    align-self: flex-end;
+    height: var(--box-h);
   }
   .btn-primary:hover { opacity: 0.85; }
   .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
