@@ -60,20 +60,33 @@
     display: flex;
     gap: 20px;
     flex-wrap: wrap;
-    align-items: flex-end;
+    align-items: flex-start;
+  }
+  .field-label {
+    display: block;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+    height: 14px;
+    line-height: 14px;
+  }
+  .upload-group {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
   }
   .input-group {
     flex: 1;
     min-width: 280px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
   }
-  .input-group label {
-    font-size: 11px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--text-dim);
+  .btn-group {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
   }
   textarea {
     background: var(--surface);
@@ -107,14 +120,6 @@
   .upload-area:hover { border-color: var(--accent-dim); background: var(--surface2); }
   .upload-area.has-image { border-style: solid; border-color: var(--accent-dim); }
   .upload-area input[type=file] { display: none; }
-  .upload-area .upload-label {
-    font-size: 11px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--text-dim);
-    margin-bottom: 6px;
-    display: block;
-  }
   .upload-area .upload-hint {
     font-size: 11px;
     color: var(--text-muted);
@@ -390,19 +395,24 @@
 </header>
 
 <div class="input-panel">
-  <label class="upload-area" id="upload-area">
-    <input type="file" id="image-input" accept="image/*">
-    <span class="upload-label">장면 이미지</span>
-    <img class="upload-preview" id="upload-preview" alt="preview">
-    <span class="upload-hint" id="upload-hint">이미지를 올리면 해당 장면을<br>9가지 앵글로 재구성합니다</span>
-  </label>
+  <div class="upload-group">
+    <span class="field-label">장면 이미지</span>
+    <label class="upload-area" id="upload-area">
+      <input type="file" id="image-input" accept="image/*">
+      <img class="upload-preview" id="upload-preview" alt="preview">
+      <span class="upload-hint" id="upload-hint">이미지를 올리면 해당 장면을<br>9가지 앵글로 재구성합니다</span>
+    </label>
+  </div>
 
   <div class="input-group">
-    <label for="scene-input">장면 설명 <span style="color:var(--text-muted);font-weight:400">(선택)</span></label>
+    <span class="field-label">장면 설명 <span style="color:var(--text-muted);font-weight:400">(선택)</span></span>
     <textarea id="scene-input" placeholder="이미지 없이 텍스트만으로도 생성 가능합니다. 이미지와 함께 쓰면 추가 맥락을 제공할 수 있습니다." rows="4"></textarea>
   </div>
 
-  <button class="btn-primary" id="generate-btn" onclick="generateAngles()">앵글 생성</button>
+  <div class="btn-group">
+    <span class="field-label">&nbsp;</span>
+    <button class="btn-primary" id="generate-btn" onclick="generateAngles()">앵글 생성</button>
+  </div>
 </div>
 
 <div class="status-bar" id="status-bar">
