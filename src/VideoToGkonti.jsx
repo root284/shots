@@ -139,15 +139,11 @@ export default function VideoToGkonti() {
               </div>
             </div>
 
-            <div style={{ marginTop: 14, display: "flex", gap: 10 }}>
+            <div style={{ marginTop: 14 }}>
               <button onClick={() => { setResult(""); setVideoName(""); setError(""); }}
                 style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkSoft, background: "none", border: `1px solid ${C.line}`, borderRadius: 2, padding: "6px 12px", cursor: "pointer" }}>
-                다른 영상 분석
+                새 영상 분석하기
               </button>
-              <a href="/"
-                style={{ fontFamily: "'Zilla Slab', serif", fontSize: 13, fontWeight: 700, color: C.paper, background: C.red, border: "none", borderRadius: 2, padding: "6px 14px", cursor: "pointer", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
-                이 결과로 콘티 시트 만들기 →
-              </a>
             </div>
           </div>
         )}
