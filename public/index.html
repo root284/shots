@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SHOTS — Cinematic Angle Generator</title>
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --surface: #111111;
+    --surface2: #1a1a1a;
+    --border: #2a2a2a;
+    --border-active: #444;
+    --text: #e8e8e8;
+    --text-dim: #888;
+    --text-muted: #555;
+    --accent: #c8a96e;
+    --accent-dim: #8a7048;
+    --danger: #e05555;
+    --success: #5ea85e;
+    --radius: 6px;
+    --card-w: 340px;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Header ── */
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 18px 32px;
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+  }
+  header h1 {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  header span {
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.1em;
+  }
+
+  /* ── Input panel ── */
+  .input-panel {
+    border-bottom: 1px solid var(--border);
+    padding: 28px 32px;
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    align-items: flex-end;
+  }
+  .input-group {
+    flex: 1;
+    min-width: 280px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .input-group label {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  textarea {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.6;
+    padding: 12px 14px;
+    resize: vertical;
+    min-height: 88px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  textarea:focus { border-color: var(--border-active); }
+  textarea::placeholder { color: var(--text-muted); }
+
+  .upload-area {
+    background: var(--surface);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    cursor: pointer;
+    text-align: center;
+    transition: border-color 0.15s, background 0.15s;
+    min-width: 200px;
+    width: 200px;
+    flex-shrink: 0;
+  }
+  .upload-area:hover { border-color: var(--accent-dim); background: var(--surface2); }
+  .upload-area.has-image { border-style: solid; border-color: var(--accent-dim); }
+  .upload-area input[type=file] { display: none; }
+  .upload-area .upload-label {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+    display: block;
+  }
+  .upload-area .upload-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .upload-preview {
+    width: 100%;
+    max-height: 80px;
+    object-fit: cover;
+    border-radius: 4px;
+    display: none;
+  }
+  .upload-preview.visible { display: block; }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #0a0a0a;
+    border: none;
+    border-radius: var(--radius);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    padding: 12px 28px;
+    cursor: pointer;
+    transition: opacity 0.15s;
+    white-space: nowrap;
+    align-self: flex-end;
+  }
+  .btn-primary:hover { opacity: 0.85; }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ── Toolbar ── */
+  .toolbar {
+    display: none;
+    padding: 16px 32px;
+    border-bottom: 1px solid var(--border);
+    align-items: center;
+    gap: 16px;
+  }
+  .toolbar.visible { display: flex; }
+  .toolbar-label {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    flex: 1;
+  }
+  .btn-secondary {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: var(--radius);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 9px 18px;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .btn-secondary:hover { border-color: var(--accent-dim); color: var(--accent); }
+  .btn-secondary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ── Cards grid ── */
+  .cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(var(--card-w), 1fr));
+    gap: 1px;
+    background: var(--border);
+    flex: 1;
+  }
+  .card {
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .card-image-area {
+    background: var(--surface);
+    aspect-ratio: 16/9;
+    position: relative;
+    overflow: hidden;
+  }
+  .card-image-area img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .card-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .card-placeholder-inner {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+  .card-index {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--border);
+    line-height: 1;
+  }
+  .card-angle-name-small {
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .card-spinner {
+    width: 22px;
+    height: 22px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .card-body {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex: 1;
+  }
+  .card-header {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .card-num {
+    font-size: 10px;
+    color: var(--accent);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    flex-shrink: 0;
+  }
+  .card-angle-name {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--text);
+    text-transform: uppercase;
+  }
+  .card-description {
+    font-size: 12px;
+    line-height: 1.65;
+    color: var(--text-dim);
+  }
+  .card-prompt-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .card-prompt-label {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .card-prompt {
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+  .card-footer {
+    padding: 0 16px 16px;
+  }
+  .btn-gen-image {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: var(--radius);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 9px;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+  }
+  .btn-gen-image:hover { border-color: var(--accent-dim); color: var(--accent); }
+  .btn-gen-image:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-gen-image.generating {
+    color: var(--text-muted);
+    border-color: var(--border);
+    cursor: not-allowed;
+  }
+  .btn-gen-image.done {
+    border-color: var(--success);
+    color: var(--success);
+  }
+
+  /* ── Status / Error ── */
+  .status-bar {
+    display: none;
+    padding: 12px 32px;
+    font-size: 12px;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid var(--border);
+    align-items: center;
+    gap: 12px;
+  }
+  .status-bar.visible { display: flex; }
+  .status-bar.error { color: var(--danger); }
+  .status-bar.loading { color: var(--text-dim); }
+  .status-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
+  }
+
+  /* ── Empty state ── */
+  .empty-state {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 12px;
+    padding: 80px 32px;
+  }
+  .empty-state-title {
+    font-size: 13px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--border-active);
+  }
+  .empty-state-sub {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-align: center;
+    max-width: 400px;
+    line-height: 1.7;
+  }
+  .grid-lines {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-bottom: 24px;
+    opacity: 0.25;
+  }
+  .grid-line-cell {
+    width: 60px;
+    height: 40px;
+    border: 1px solid var(--border-active);
+    border-radius: 3px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>SHOTS</h1>
+  <span>Cinematic Angle Generator</span>
+</header>
+
+<div class="input-panel">
+  <div class="input-group">
+    <label for="scene-input">장면 설명</label>
+    <textarea id="scene-input" placeholder="장면을 설명해주세요. 예: 폭우가 쏟아지는 새벽, 형사가 골목 끝 가로등 아래 서 있다. 멀리서 발소리가 들린다." rows="4"></textarea>
+  </div>
+
+  <label class="upload-area" id="upload-area">
+    <input type="file" id="image-input" accept="image/*">
+    <span class="upload-label">스타일 레퍼런스</span>
+    <img class="upload-preview" id="upload-preview" alt="preview">
+    <span class="upload-hint" id="upload-hint">이미지 클릭하여 첨부<br>(선택 사항)</span>
+  </label>
+
+  <button class="btn-primary" id="generate-btn" onclick="generateAngles()">앵글 생성</button>
+</div>
+
+<div class="status-bar" id="status-bar">
+  <div class="status-spinner" id="status-spinner" style="display:none"></div>
+  <span id="status-text"></span>
+</div>
+
+<div class="toolbar" id="toolbar">
+  <span class="toolbar-label" id="toolbar-label">9개 앵글 카드 생성됨</span>
+  <button class="btn-secondary" id="gen-all-btn" onclick="generateAllImages()">전체 이미지 생성</button>
+</div>
+
+<div id="main-content">
+  <div class="empty-state" id="empty-state">
+    <div class="grid-lines">
+      <div class="grid-line-cell"></div><div class="grid-line-cell"></div><div class="grid-line-cell"></div>
+      <div class="grid-line-cell"></div><div class="grid-line-cell"></div><div class="grid-line-cell"></div>
+      <div class="grid-line-cell"></div><div class="grid-line-cell"></div><div class="grid-line-cell"></div>
+    </div>
+    <div class="empty-state-title">장면을 입력하세요</div>
+    <div class="empty-state-sub">장면 설명을 입력하고 "앵글 생성"을 누르면<br>9개의 시네마틱 앵글 카드를 생성합니다.</div>
+  </div>
+  <div class="cards-grid" id="cards-grid" style="display:none"></div>
+</div>
+
+<script>
+let currentAngles = [];
+let styleImageBase64 = null;
+let styleImageMime = null;
+let hasStyleImage = false;
+
+// ── 이미지 업로드 ──────────────────────────────────────────────────────────────
+document.getElementById('image-input').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    const dataUrl = ev.target.result;
+    styleImageBase64 = dataUrl.split(',')[1];
+    styleImageMime = file.type;
+    document.getElementById('upload-preview').src = dataUrl;
+    document.getElementById('upload-preview').classList.add('visible');
+    document.getElementById('upload-hint').style.display = 'none';
+    document.getElementById('upload-area').classList.add('has-image');
+  };
+  reader.readAsDataURL(file);
+});
+
+// ── 상태 표시 ──────────────────────────────────────────────────────────────────
+function setStatus(type, msg) {
+  const bar = document.getElementById('status-bar');
+  const text = document.getElementById('status-text');
+  const spinner = document.getElementById('status-spinner');
+  if (!msg) { bar.classList.remove('visible'); return; }
+  bar.className = 'status-bar visible ' + type;
+  text.textContent = msg;
+  spinner.style.display = type === 'loading' ? 'block' : 'none';
+}
+
+// ── 앵글 생성 ──────────────────────────────────────────────────────────────────
+async function generateAngles() {
+  const sceneInput = document.getElementById('scene-input').value.trim();
+  if (!sceneInput) { setStatus('error', '장면 설명을 입력해주세요.'); return; }
+
+  const btn = document.getElementById('generate-btn');
+  btn.disabled = true;
+  setStatus('loading', 'Claude가 9개 앵글을 분석 중입니다...');
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('cards-grid').style.display = 'none';
+  document.getElementById('toolbar').classList.remove('visible');
+
+  try {
+    const fd = new FormData();
+    fd.append('sceneDescription', sceneInput);
+    const imageFile = document.getElementById('image-input').files[0];
+    if (imageFile) fd.append('image', imageFile);
+
+    const res = await fetch('/api/generate-angles', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'API 오류');
+
+    currentAngles = data.angles;
+    hasStyleImage = data.hasStyleImage;
+    renderCards(data.angles);
+    setStatus('', '');
+  } catch (err) {
+    setStatus('error', '오류: ' + err.message);
+    document.getElementById('empty-state').style.display = 'flex';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// Enter key on textarea
+document.getElementById('scene-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) generateAngles();
+});
+
+// ── 카드 렌더링 ────────────────────────────────────────────────────────────────
+function renderCards(angles) {
+  const grid = document.getElementById('cards-grid');
+  grid.innerHTML = '';
+  angles.forEach((angle, i) => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.id = `card-${i}`;
+    card.innerHTML = `
+      <div class="card-image-area" id="img-area-${i}">
+        <div class="card-placeholder" id="placeholder-${i}">
+          <div class="card-placeholder-inner">
+            <div class="card-index">${String(i + 1).padStart(2, '0')}</div>
+            <div class="card-angle-name-small">${escHtml(angle.angleName)}</div>
+          </div>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="card-header">
+          <span class="card-num">${String(i + 1).padStart(2, '0')}</span>
+          <span class="card-angle-name">${escHtml(angle.angleName)}</span>
+        </div>
+        <div class="card-description">${escHtml(angle.koreanDescription)}</div>
+        <div class="card-prompt-wrap">
+          <div class="card-prompt-label">Image Prompt</div>
+          <div class="card-prompt">${escHtml(angle.imagePrompt)}</div>
+        </div>
+      </div>
+      <div class="card-footer">
+        <button class="btn-gen-image" id="img-btn-${i}" onclick="generateImage(${i})">이미지 생성</button>
+      </div>
+    `;
+    grid.appendChild(card);
+  });
+
+  grid.style.display = 'grid';
+  document.getElementById('toolbar').classList.add('visible');
+  document.getElementById('toolbar-label').textContent = `${angles.length}개 앵글 카드 생성됨`;
+}
+
+function escHtml(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── 이미지 생성 (단일) ──────────────────────────────────────────────────────────
+async function generateImage(index) {
+  const angle = currentAngles[index];
+  if (!angle) return;
+
+  const btn = document.getElementById(`img-btn-${index}`);
+  const placeholder = document.getElementById(`placeholder-${index}`);
+  btn.disabled = true;
+  btn.classList.add('generating');
+  btn.textContent = '생성 중...';
+
+  // 로딩 스피너
+  placeholder.innerHTML = `<div class="card-placeholder-inner"><div class="card-spinner"></div></div>`;
+
+  try {
+    const body = { prompt: angle.imagePrompt };
+    if (hasStyleImage && styleImageBase64) {
+      body.styleImageBase64 = styleImageBase64;
+      body.styleImageMimeType = styleImageMime;
+    }
+
+    const res = await fetch('/api/generate-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '이미지 생성 실패');
+
+    const imgArea = document.getElementById(`img-area-${index}`);
+    imgArea.innerHTML = `<img src="${data.imageUrl}" alt="${escHtml(angle.angleName)}" loading="lazy">`;
+    btn.textContent = '재생성';
+    btn.classList.remove('generating');
+    btn.classList.add('done');
+    btn.disabled = false;
+  } catch (err) {
+    placeholder.innerHTML = `
+      <div class="card-placeholder-inner">
+        <div class="card-index" style="color:#e05555">ERR</div>
+        <div class="card-angle-name-small" style="color:#e05555">${escHtml(err.message.slice(0, 40))}</div>
+      </div>`;
+    btn.textContent = '재시도';
+    btn.classList.remove('generating');
+    btn.disabled = false;
+  }
+}
+
+// ── 전체 이미지 생성 ────────────────────────────────────────────────────────────
+async function generateAllImages() {
+  const btn = document.getElementById('gen-all-btn');
+  btn.disabled = true;
+  btn.textContent = '생성 중...';
+  setStatus('loading', `전체 이미지 생성 중 (${currentAngles.length}개)...`);
+
+  await Promise.all(currentAngles.map((_, i) => generateImage(i)));
+
+  btn.disabled = false;
+  btn.textContent = '전체 재생성';
+  setStatus('', '');
+}
+</script>
+</body>
+</html>
