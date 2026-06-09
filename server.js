@@ -4,9 +4,9 @@ import { readFile, stat } from "node:fs/promises";
 import { join, extname, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const PORT          = process.env.PORT || 3000;
-const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY?.trim();
-const FAL_KEY       = process.env.FAL_KEY?.trim();
+const PORT        = process.env.PORT || 3000;
+const GEMINI_KEY  = process.env.GEMINI_API_KEY?.trim();
+const FAL_KEY     = process.env.FAL_KEY?.trim();
 const __dirname     = dirname(fileURLToPath(import.meta.url));
 const PUBLIC        = join(__dirname, "public");
 
@@ -57,9 +57,9 @@ function getContentDisposition(headers) {
 
 // ── /api/generate-angles ─────────────────────────────────────────────────────
 async function generateAngles(req, res) {
-  if (!ANTHROPIC_KEY) {
+  if (!GEMINI_KEY) {
     res.writeHead(500, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "ANTHROPIC_API_KEY not configured on server" }));
+    res.end(JSON.stringify({ error: "GEMINI_API_KEY not configured on server" }));
     return;
   }
 
@@ -121,49 +121,44 @@ Respond with a JSON array of exactly 9 objects, each with:
 
 Return ONLY the JSON array, no markdown, no explanation.`;
 
-  const userContent = [];
+  const parts = [];
 
   if (imageBase64) {
-    userContent.push({
-      type: "image",
-      source: { type: "base64", media_type: imageMime, data: imageBase64 }
-    });
+    parts.push({ inlineData: { mimeType: imageMime, data: imageBase64 } });
     const textPart = sceneDescription.trim()
-      ? `Reference image above shows the scene. Additional context: ${sceneDescription}\n\nGenerate 9 different cinematic angles for shooting this same scene.`
-      : `Reference image above shows the scene. Analyze it and generate 9 different cinematic angles for shooting this same scene.`;
-    userContent.push({ type: "text", text: textPart });
+      ? `Reference image shows the scene. Additional context: ${sceneDescription}\n\nGenerate 9 different cinematic angles for shooting this same scene.`
+      : `Reference image shows the scene. Analyze it and generate 9 different cinematic angles for shooting this same scene.`;
+    parts.push({ text: textPart });
   } else {
-    userContent.push({ type: "text", text: `Scene description: ${sceneDescription}\n\nGenerate 9 different cinematic angles for shooting this scene.` });
+    parts.push({ text: `Scene description: ${sceneDescription}\n\nGenerate 9 different cinematic angles for shooting this scene.` });
   }
 
-  const apiRes = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userContent }],
-    }),
-    signal: AbortSignal.timeout(60_000),
-  });
+  const apiRes = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ parts }],
+        generationConfig: { maxOutputTokens: 4096, temperature: 1.0 },
+      }),
+      signal: AbortSignal.timeout(60_000),
+    }
+  );
 
   const data = await apiRes.json();
   if (!apiRes.ok) {
     res.writeHead(502, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: data.error?.message || "Claude API error" }));
+    res.end(JSON.stringify({ error: data.error?.message || "Gemini API error" }));
     return;
   }
 
-  const rawText = data.content?.[0]?.text?.trim() || "";
+  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
   const jsonMatch = rawText.match(/\[[\s\S]*\]/);
   if (!jsonMatch) {
     res.writeHead(502, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Claude returned unexpected format" }));
+    res.end(JSON.stringify({ error: "Gemini returned unexpected format" }));
     return;
   }
 
