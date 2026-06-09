@@ -139,10 +139,21 @@ export default function VideoToGkonti() {
               </div>
             </div>
 
-            <div style={{ marginTop: 14 }}>
+            <div style={{ marginTop: 14, display: "flex", gap: 10 }}>
               <button onClick={() => { setResult(""); setVideoName(""); setError(""); }}
                 style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: C.inkSoft, background: "none", border: `1px solid ${C.line}`, borderRadius: 2, padding: "6px 12px", cursor: "pointer" }}>
                 새 영상 분석하기
+              </button>
+              <button onClick={() => {
+                // 기존 저장 데이터에 영상 분석 결과 병합 후 이동
+                try {
+                  const prev = JSON.parse(localStorage.getItem("sb_save") || "{}");
+                  localStorage.setItem("sb_save", JSON.stringify({ ...prev, videoAnalysis: result, videoName }));
+                } catch {}
+                window.location.href = "/";
+              }}
+                style={{ fontFamily: "'Zilla Slab', serif", fontSize: 13, fontWeight: 700, color: C.paper, background: C.red, border: "none", borderRadius: 2, padding: "6px 16px", cursor: "pointer" }}>
+                이 결과로 콘티 시트 만들기 →
               </button>
             </div>
           </div>
