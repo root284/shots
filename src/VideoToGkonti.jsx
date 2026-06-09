@@ -129,8 +129,8 @@ export default function VideoToGkonti() {
         </div>
 
         <p style={{ fontSize: 13.5, color: C.inkSoft, lineHeight: 1.7, marginBottom: 28 }}>
-          영상을 올리면 <strong>Gemini</strong>가 씬별 카메라 워킹·샷 사이즈·분위기를 분석하고,
-          이미지를 올리면 <strong>Claude</strong>가 각 컷을 글콘티 형식으로 묘사합니다.<br />
+          영상·이미지를 올리면 <strong>Gemini</strong>가 씬별 카메라 워킹·샷 사이즈·분위기를 분석해
+          글콘티 형식으로 변환합니다.<br />
           이미지는 여러 장을 동시에 올리면 순서대로 컷으로 처리합니다.
         </p>
 
