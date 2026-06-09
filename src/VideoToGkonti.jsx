@@ -6,7 +6,6 @@ const C = {
   inkSoft: "#5a5246", red: "#b3331f", line: "#ccc0a6", lineSoft: "#ddd4bf",
 };
 
-const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY;
 const isAbort = (e) => e?.name === "AbortError" || e?.message === "Aborted";
 
 const readFileAsDataURL = (file) => new Promise((resolve, reject) => {
@@ -16,48 +15,22 @@ const readFileAsDataURL = (file) => new Promise((resolve, reject) => {
   reader.readAsDataURL(file);
 });
 
-const IMAGE_PROMPT = `이 이미지(들)를 글콘티 형식으로 묘사하세요. 각 이미지를 하나의 컷으로 보고 아래 형식으로 작성합니다.
-
-출력 형식 (마크다운 헤더·설명 없이 이 형식만):
-≈[컷번호] [샷사이즈/앵글] | 화면: [배경·공간·조명·색감 묘사] | 피사체: [인물 위치·복장·표정·동작] | 카메라: [카메라 무브 추정·고정 여부] | 분위기: [감정·무드 한 줄]
-
-예시:
-≈1 M.F.S./eye-level | 화면: 스테인드글라스 창이 있는 고딕 성당 내부, 따뜻한 자연광 | 피사체: 금발 여성, 붉은 드레스, 측면으로 서 있음 | 카메라: 고정(FIX), 약간의 핸드헬드 느낌 | 분위기: 장엄하고 고독한 존재감
-
-주의사항:
-- 샷사이즈: EWS / WS / MWS / MFS / MS / MCU / CU / ECU 중 선택
-- 앵글: eye-level / low-angle / high-angle / bird's-eye / dutch-angle 중 선택
-- 카메라는 정지 이미지에서 추정 가능한 범위로만 묘사
-- 피사체가 없으면 "피사체: 없음"으로 표기
-- 이미지 순서대로 컷번호 부여`;
-
 async function analyzeImages(files, signal) {
-  const contents = await Promise.all(files.map(async (f) => {
+  const images = await Promise.all(files.map(async (f) => {
     const dataURL = await readFileAsDataURL(f);
-    const base64 = dataURL.split(",")[1];
-    const mediaType = f.type || "image/jpeg";
-    return { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } };
+    return { data: dataURL.split(",")[1], mimeType: f.type || "image/jpeg" };
   }));
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await fetch("/api/gemini/analyze-image", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-5",
-      max_tokens: 2048,
-      messages: [{ role: "user", content: [...contents, { type: "text", text: IMAGE_PROMPT }] }],
-    }),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ images }),
     signal,
   });
 
   const json = await res.json();
-  if (!res.ok) throw new Error(json.error?.message ?? "Claude 분석 실패");
-  return json.content?.[0]?.text ?? "";
+  if (!res.ok || json.error) throw new Error(json.error ?? "Gemini 이미지 분석 실패");
+  return json.text ?? "";
 }
 
 export default function VideoToGkonti() {
@@ -132,7 +105,7 @@ export default function VideoToGkonti() {
     setTimeout(() => setCopied(false), 1800);
   };
 
-  const badgeLabel = fileType === "image" ? "by Claude" : "by Gemini";
+  const badgeLabel = "by Gemini";
 
   return (
     <div style={{ minHeight: "100vh", background: C.paper, color: C.ink, backgroundImage: "radial-gradient(#0000000a 0.5px, transparent 0.5px)", backgroundSize: "5px 5px", padding: "36px 20px 64px", fontFamily: "sans-serif" }}>

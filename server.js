@@ -169,6 +169,69 @@ async function analyzeVideoWithGemini(req, res) {
   res.end(JSON.stringify({ text }));
 }
 
+// ── Gemini 이미지 분석 ────────────────────────────────────────────────────────
+// POST /api/gemini/analyze-image
+//   Body  : JSON { images: [{ data: base64string, mimeType: "image/jpeg" }] }
+//   Returns: { text: "글콘티 결과" }
+async function analyzeImagesWithGemini(req, res) {
+  if (!GEMINI_KEY) {
+    res.writeHead(500, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "GEMINI_API_KEY not set on server" }));
+    return;
+  }
+
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  const { images } = JSON.parse(Buffer.concat(chunks).toString());
+
+  if (!images?.length) {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "images 배열이 비어있습니다" }));
+    return;
+  }
+
+  const prompt = `이 이미지(들)를 글콘티 형식으로 묘사하세요. 각 이미지를 하나의 컷으로 보고 아래 형식으로 작성합니다.
+
+출력 형식 (마크다운 헤더·설명 없이 이 형식만):
+≈[컷번호] [샷사이즈/앵글] | 화면: [배경·공간·조명·색감 묘사] | 피사체: [인물 위치·복장·표정·동작] | 카메라: [카메라 무브 추정·고정 여부] | 분위기: [감정·무드 한 줄]
+
+예시:
+≈1 M.F.S./eye-level | 화면: 스테인드글라스 창이 있는 고딕 성당 내부, 따뜻한 자연광 | 피사체: 금발 여성, 붉은 드레스, 측면으로 서 있음 | 카메라: 고정(FIX), 약간의 핸드헬드 느낌 | 분위기: 장엄하고 고독한 존재감
+
+주의사항:
+- 샷사이즈: EWS / WS / MWS / MFS / MS / MCU / CU / ECU 중 선택
+- 앵글: eye-level / low-angle / high-angle / bird's-eye / dutch-angle 중 선택
+- 카메라는 정지 이미지에서 추정 가능한 범위로만 묘사
+- 피사체가 없으면 "피사체: 없음"으로 표기
+- 이미지 순서대로 컷번호 부여`;
+
+  const parts = [
+    ...images.map(img => ({ inlineData: { mimeType: img.mimeType, data: img.data } })),
+    { text: prompt },
+  ];
+
+  const genRes = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: [{ parts }] }),
+      signal: AbortSignal.timeout(60_000),
+    }
+  );
+
+  const genJson = await genRes.json();
+  if (!genRes.ok) {
+    res.writeHead(502, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: genJson.error?.message ?? "Gemini 이미지 분석 실패" }));
+    return;
+  }
+
+  const text = genJson.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ text }));
+}
+
 // ── 정적 파일 서빙 ────────────────────────────────────────────────────────────
 async function serveStatic(req, res) {
   let filePath = join(DIST, req.url.split("?")[0]);
@@ -193,6 +256,8 @@ const server = createServer(async (req, res) => {
       await proxyOpenAI(req, res);
     } else if (req.url === "/api/gemini/analyze" && req.method === "POST") {
       await analyzeVideoWithGemini(req, res);
+    } else if (req.url === "/api/gemini/analyze-image" && req.method === "POST") {
+      await analyzeImagesWithGemini(req, res);
     } else {
       await serveStatic(req, res);
     }
