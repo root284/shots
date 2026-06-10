@@ -641,11 +641,27 @@ async function generateAngles() {
 
   try {
     const fd = buildFormData(sceneInput, charDesc, 9, []);
-    const res = await fetch('/api/generate-angles', { method: 'POST', body: fd });
-    const data = await safeJson(res);
-    if (!res.ok) throw new Error(data.error || `서버 오류 (${res.status})`);
-    currentAngles = data.angles;
-    renderCards(data.angles);
+    // 1단계: 즉시 jobId 반환
+    const submitRes = await fetch('/api/generate-angles', { method: 'POST', body: fd });
+    const submitData = await safeJson(submitRes);
+    if (!submitRes.ok) throw new Error(submitData.error || `서버 오류 (${submitRes.status})`);
+    const { jobId } = submitData;
+    if (!jobId) throw new Error('jobId 없음');
+
+    // 2단계: 2초마다 폴링 (최대 2분)
+    let result = null;
+    for (let attempt = 0; attempt < 60; attempt++) {
+      await new Promise(r => setTimeout(r, 2000));
+      const pollRes = await fetch(`/api/job-result?jobId=${jobId}`);
+      if (!pollRes.ok) throw new Error(`폴링 오류 (${pollRes.status})`);
+      const job = await pollRes.json();
+      if (job.status === 'done') { result = job.result; break; }
+      if (job.status === 'error') throw new Error(job.error || '생성 실패');
+    }
+    if (!result) throw new Error('시간 초과 (2분)');
+
+    currentAngles = result.angles;
+    renderCards(result.angles);
     setStatus('', '');
   } catch (err) {
     setStatus('error', '오류: ' + err.message);
@@ -724,11 +740,11 @@ async function generateCardImage(index) {
       await new Promise(r => setTimeout(r, 2000));
       if (controller.signal.aborted) throw new Error('취소됨');
 
-      const pollRes = await fetch(`/api/image-result?jobId=${jobId}`, { signal: controller.signal });
+      const pollRes = await fetch(`/api/job-result?jobId=${jobId}`, { signal: controller.signal });
       if (!pollRes.ok) throw new Error(`폴링 오류 (${pollRes.status})`);
       const job = await pollRes.json();
 
-      if (job.status === 'done') { result = job; break; }
+      if (job.status === 'done') { result = job.result; break; }
       if (job.status === 'error') throw new Error(job.error || '생성 실패');
       // pending → 계속 폴링
     }
