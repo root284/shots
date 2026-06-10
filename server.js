@@ -199,7 +199,7 @@ Return ONLY the JSON array, no markdown, no explanation.`;
   res.end(JSON.stringify({ angles }));
 }
 
-const SKETCH_PREFIX = "storyboard sketch, rough pencil lines, black and white, no color — ";
+const SKETCH_PREFIX = "black and white storyboard sketch, rough pencil lines, cinematic composition, professional storyboard art, no color — ";
 // 큐 제출에 사용할 모델 목록 (앞에서부터 순서대로 시도)
 const FAL_MODELS = [
   "fal-ai/flux/schnell",
