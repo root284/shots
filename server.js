@@ -200,6 +200,40 @@ Return ONLY the JSON array, no markdown, no explanation.`;
 }
 
 const SKETCH_PREFIX = "storyboard sketch, rough pencil lines, black and white, no color — ";
+// 큐 제출에 사용할 모델 목록 (앞에서부터 순서대로 시도)
+const FAL_MODELS = [
+  "fal-ai/flux/schnell",
+  "fal-ai/fast-lightning-sdxl",
+];
+
+// fal.ai 큐에 제출, 실패 시 다음 모델로 폴백
+async function falQueueSubmit(prompt, imageSize = "landscape_16_9") {
+  let lastError = "";
+  for (const model of FAL_MODELS) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await fetch(`https://queue.fal.run/${model}`, {
+          method: "POST",
+          headers: { "Authorization": `Key ${FAL_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt, image_size: imageSize, num_inference_steps: 4, num_images: 1 }),
+          signal: AbortSignal.timeout(20_000),
+        });
+        const text = await res.text();
+        console.log(`fal submit [${model}] attempt ${attempt+1}: status=${res.status}, body=${text.slice(0,200)}`);
+        if (res.ok) {
+          const data = JSON.parse(text);
+          if (data.request_id) return { request_id: data.request_id, model };
+        }
+        lastError = `${model} ${res.status}: ${text.slice(0, 100)}`;
+        if (attempt === 0) await new Promise(r => setTimeout(r, 1500)); // 재시도 전 잠시 대기
+      } catch (e) {
+        lastError = `${model}: ${e.message}`;
+        if (attempt === 0) await new Promise(r => setTimeout(r, 1500));
+      }
+    }
+  }
+  throw new Error(`fal.ai 제출 실패: ${lastError}`);
+}
 
 // ── /api/submit-image  (범용: prompt → fal.ai 큐 제출 → request_id 반환) ────
 async function submitImage(req, res) {
@@ -218,23 +252,10 @@ async function submitImage(req, res) {
 
   const fullPrompt = SKETCH_PREFIX + prompt;
   console.log("Image prompt (first 150):", fullPrompt.slice(0, 150));
-
-  const submitRes = await fetch("https://queue.fal.run/fal-ai/flux/schnell", {
-    method: "POST",
-    headers: { "Authorization": `Key ${FAL_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt: fullPrompt, image_size: "landscape_16_9", num_inference_steps: 4, num_images: 1 }),
-    signal: AbortSignal.timeout(20_000),
-  });
-  const submitText = await submitRes.text();
-  console.log(`fal.ai submit-image: status=${submitRes.status}, body=${submitText.slice(0, 200)}`);
-  if (!submitRes.ok) {
-    res.writeHead(502, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: `fal.ai ${submitRes.status}: ${submitText.slice(0, 200)}` }));
-    return;
-  }
-  const { request_id } = JSON.parse(submitText);
+  const { request_id, model } = await falQueueSubmit(fullPrompt, "landscape_16_9");
+  console.log(`Submitted to ${model}, request_id=${request_id}`);
   res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ request_id }));
+  res.end(JSON.stringify({ request_id, model }));
 }
 
 // ── /api/submit-preview-sheet  (큐에 제출 → request_id 즉시 반환) ───────────
@@ -296,7 +317,9 @@ async function pollPreviewSheet(req, res) {
     return;
   }
 
-  const id = new URL(req.url, "http://x").searchParams.get("id");
+  const params = new URL(req.url, "http://x").searchParams;
+  const id = params.get("id");
+  const model = params.get("model") || "fal-ai/flux/schnell";
   if (!id) {
     res.writeHead(400, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "id required" }));
@@ -304,7 +327,7 @@ async function pollPreviewSheet(req, res) {
   }
 
   const pollRes = await fetch(
-    `https://queue.fal.run/fal-ai/flux/schnell/requests/${id}`,
+    `https://queue.fal.run/${model}/requests/${id}`,
     { headers: { "Authorization": `Key ${FAL_KEY}` }, signal: AbortSignal.timeout(15_000) }
   );
   const pollText = await pollRes.text();
