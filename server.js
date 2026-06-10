@@ -260,7 +260,7 @@ async function generateImage(req, res) {
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ jobId }));
 
-  const fullPrompt = `black and white storyboard sketch, rough pencil lines, cinematic composition, professional storyboard art, no color — ${prompt}`;
+  const fullPrompt = `Professional film storyboard panel, clean ink line art, bold confident strokes, high contrast black and white, no gray tones, cinematic framing, clear foreground/midground/background depth. ${prompt}. Style: professional storyboard like those used in Hollywood productions, sharp lines, expressive but controlled linework.`;
   console.log(`[${jobId}] OpenAI prompt (first 150):`, fullPrompt.slice(0, 150));
   console.log(`[${jobId}] Reference image:`, imageBase64 ? "provided" : "none");
 
@@ -268,45 +268,15 @@ async function generateImage(req, res) {
     try {
       let openaiRes;
 
-      if (imageBase64) {
-        // 레퍼런스 이미지 있을 때 → /v1/images/edits (multipart/form-data)
-        const imgBuffer = Buffer.from(imageBase64, "base64");
-        const boundary = `----FormBoundary${Date.now()}`;
-        const mime = imageMime || "image/jpeg";
-        const ext = mime.split("/")[1] || "jpg";
-
-        const field = (name, value) =>
-          `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`;
-        const fileField = Buffer.concat([
-          Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="image[]"; filename="ref.${ext}"\r\nContent-Type: ${mime}\r\n\r\n`),
-          imgBuffer,
-          Buffer.from("\r\n"),
-        ]);
-        const formBody = Buffer.concat([
-          Buffer.from(field("model", "gpt-image-1")),
-          Buffer.from(field("prompt", fullPrompt)),
-          Buffer.from(field("n", "1")),
-          Buffer.from(field("size", "1536x1024")),
-          Buffer.from(field("quality", "medium")),
-          fileField,
-          Buffer.from(`--${boundary}--\r\n`),
-        ]);
-
-        openaiRes = await fetch("https://api.openai.com/v1/images/edits", {
-          method: "POST",
-          headers: { "Authorization": `Bearer ${OPENAI_KEY}`, "Content-Type": `multipart/form-data; boundary=${boundary}` },
-          body: formBody,
-          signal: AbortSignal.timeout(120_000),
-        });
-      } else {
-        // 레퍼런스 없을 때 → /v1/images/generations (JSON)
-        openaiRes = await fetch("https://api.openai.com/v1/images/generations", {
-          method: "POST",
-          headers: { "Authorization": `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ model: "gpt-image-1", prompt: fullPrompt, n: 1, size: "1536x1024", quality: "medium" }),
-          signal: AbortSignal.timeout(120_000),
-        });
-      }
+      // 항상 /v1/images/generations (JSON) 사용
+      // 레퍼런스 이미지는 Gemini가 이미 분석해 imagePrompt에 캐릭터 정보를 넣었으므로
+      // OpenAI에 직접 넘기면 구도가 복사되는 문제 발생 → 텍스트 프롬프트만 사용
+      openaiRes = await fetch("https://api.openai.com/v1/images/generations", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "gpt-image-1", prompt: fullPrompt, n: 1, size: "1536x1024", quality: "high" }),
+        signal: AbortSignal.timeout(120_000),
+      });
 
       const openaiText = await openaiRes.text();
       console.log(`[${jobId}] OpenAI response: status=${openaiRes.status}, body=${openaiText.slice(0, 200)}`);
