@@ -207,7 +207,8 @@ async function generateImage(req, res) {
     return;
   }
 
-  const { prompt } = JSON.parse((await readBody(req)).toString());
+  const body = JSON.parse((await readBody(req)).toString());
+  const { prompt, imageBase64, imageMime } = body;
   if (!prompt?.trim()) {
     res.writeHead(400, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "prompt required" }));
@@ -215,27 +216,61 @@ async function generateImage(req, res) {
   }
 
   const fullPrompt = `black and white storyboard sketch, rough pencil lines, cinematic composition, professional storyboard art, no color — ${prompt}`;
-  console.log("OpenAI image prompt (first 150):", fullPrompt.slice(0, 150));
+  console.log("OpenAI prompt (first 150):", fullPrompt.slice(0, 150));
+  console.log("Reference image:", imageBase64 ? "provided" : "none");
 
-  // SSE로 응답 — Railway 연결 끊김 방지용 keepalive 전송
+  // SSE로 응답 — Railway 연결 끊김 방지용 keepalive
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
     "X-Accel-Buffering": "no",
   });
-
-  // 10초마다 keepalive 전송
   const keepalive = setInterval(() => {
     try { res.write(": keepalive\n\n"); } catch {}
   }, 10_000);
 
   try {
-    const openaiRes = await fetch("https://api.openai.com/v1/images/generations", {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "gpt-image-1", prompt: fullPrompt, n: 1, size: "1536x1024", quality: "low" }),
-      signal: AbortSignal.timeout(120_000),
-    });
+    let openaiRes;
+
+    if (imageBase64) {
+      // 레퍼런스 이미지 있을 때 — multipart/form-data로 전송
+      const imgBuffer = Buffer.from(imageBase64, "base64");
+      const boundary = `----FormBoundary${Date.now()}`;
+      const mime = imageMime || "image/jpeg";
+      const ext = mime.split("/")[1] || "jpg";
+
+      const parts = [
+        `--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\ngpt-image-1`,
+        `--${boundary}\r\nContent-Disposition: form-data; name="prompt"\r\n\r\n${fullPrompt}`,
+        `--${boundary}\r\nContent-Disposition: form-data; name="n"\r\n\r\n1`,
+        `--${boundary}\r\nContent-Disposition: form-data; name="size"\r\n\r\n1536x1024`,
+        `--${boundary}\r\nContent-Disposition: form-data; name="quality"\r\n\r\nmedium`,
+      ];
+      const textPart = Buffer.from(parts.join("\r\n") + "\r\n");
+      const imgPart = Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="ref.${ext}"\r\nContent-Type: ${mime}\r\n\r\n`
+      );
+      const closing = Buffer.from(`\r\n--${boundary}--\r\n`);
+      const formBody = Buffer.concat([textPart, imgPart, imgBuffer, closing]);
+
+      openaiRes = await fetch("https://api.openai.com/v1/images/generations", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${OPENAI_KEY}`,
+          "Content-Type": `multipart/form-data; boundary=${boundary}`,
+        },
+        body: formBody,
+        signal: AbortSignal.timeout(120_000),
+      });
+    } else {
+      // 레퍼런스 이미지 없을 때 — JSON
+      openaiRes = await fetch("https://api.openai.com/v1/images/generations", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "gpt-image-1", prompt: fullPrompt, n: 1, size: "1536x1024", quality: "medium" }),
+        signal: AbortSignal.timeout(120_000),
+      });
+    }
 
     const openaiText = await openaiRes.text();
     console.log(`OpenAI response: status=${openaiRes.status}, body=${openaiText.slice(0, 200)}`);

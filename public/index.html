@@ -695,10 +695,18 @@ async function generateCardImage(index) {
     </div>`;
 
   try {
+    // 장면 이미지 파일에서 mime 타입 추출
+    const imgFile = document.getElementById('image-input').files[0];
+    const imgMime = imgFile?.type || null;
+
     const res = await fetch('/api/generate-image', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: angle.imagePrompt }),
+      body: JSON.stringify({
+        prompt: angle.imagePrompt,
+        imageBase64: sceneImageBase64 || null,
+        imageMime: imgMime,
+      }),
       signal: controller.signal,
     });
     if (!res.ok) {
