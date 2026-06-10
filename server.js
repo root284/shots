@@ -158,6 +158,7 @@ For each imagePrompt:
 - Include environment and lighting
 - Change ONLY the camera angle/framing between cards
 - Write in rich cinematic detail — this prompt will be used in professional image generation tools
+- For "Extreme Close-Up": choose the most dramatically relevant body part based on the scene context (e.g. eyes for gazing/emotion, mouth/lips for dialogue, hands for gestures or touching objects, feet for walking/running, fingers for detail work). Specify exactly which part and why it matters narratively.
 
 Respond with a JSON array of exactly ${count} objects:
 - "angleName": string (from the pool)
