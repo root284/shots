@@ -239,71 +239,6 @@ async function jobResult(req, res) {
   res.end(JSON.stringify(jobs.get(jobId)));
 }
 
-// ── /api/generate-image  (즉시 jobId 반환 → 백그라운드에서 OpenAI 호출) ────────
-async function generateImage(req, res) {
-  if (!OPENAI_KEY) {
-    res.writeHead(500, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "OPENAI_API_KEY not configured on server" }));
-    return;
-  }
-
-  const body = JSON.parse((await readBody(req)).toString());
-  const { prompt, imageBase64, imageMime } = body;
-  if (!prompt?.trim()) {
-    res.writeHead(400, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "prompt required" }));
-    return;
-  }
-
-  // 즉시 jobId 반환
-  const jobId = newJob();
-  res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ jobId }));
-
-  console.log(`[${jobId}] Raw prompt (first 100):`, prompt.slice(0, 100));
-  console.log(`[${jobId}] Reference image:`, imageBase64 ? "provided" : "none");
-
-  (async () => {
-    try {
-      // ── DALL-E 3: JSON만 지원, 응답은 url ──────────────────────────────────
-      // DALL-E 3 자체가 내부적으로 프롬프트를 강화하므로 GPT-4o 전처리 생략
-      console.log(`[${jobId}] Calling gpt-image-1...`);
-      const openaiRes = await fetch("https://api.openai.com/v1/images/generations", {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "gpt-image-1",
-          prompt,
-          n: 1,
-          size: "1536x1024",
-          quality: "high",
-        }),
-        signal: AbortSignal.timeout(120_000),
-      });
-
-      const openaiText = await openaiRes.text();
-      console.log(`[${jobId}] OpenAI response: status=${openaiRes.status}, body=${openaiText.slice(0, 300)}`);
-
-      if (!openaiRes.ok) {
-        let errMsg = `OpenAI 오류 (${openaiRes.status})`;
-        try { errMsg = JSON.parse(openaiText).error?.message || errMsg; } catch {}
-        jobs.set(jobId, { status: "error", error: errMsg });
-        return;
-      }
-
-      const b64 = JSON.parse(openaiText).data?.[0]?.b64_json;
-      if (!b64) { jobs.set(jobId, { status: "error", error: "No image returned from OpenAI" }); return; }
-
-      const imageData = `data:image/png;base64,${b64}`;
-
-      jobs.set(jobId, { status: "done", result: { imageData } });
-      console.log(`[${jobId}] Image done.`);
-    } catch (e) {
-      console.error(`[${jobId}] OpenAI error:`, e.message);
-      jobs.set(jobId, { status: "error", error: e.message });
-    }
-  })();
-}
 
 // ── 정적 파일 서빙 ────────────────────────────────────────────────────────────
 async function serveStatic(req, res) {
@@ -327,8 +262,6 @@ const server = createServer(async (req, res) => {
   try {
     if (req.url === "/api/generate-angles" && req.method === "POST") {
       await generateAngles(req, res);
-    } else if (req.url === "/api/generate-image" && req.method === "POST") {
-      await generateImage(req, res);
     } else if (req.url.startsWith("/api/job-result") && req.method === "GET") {
       await jobResult(req, res);
     } else {
