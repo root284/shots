@@ -162,7 +162,7 @@ For each imagePrompt:
 Respond with a JSON array of exactly ${count} objects:
 - "angleName": string (from the pool)
 - "koreanDescription": string (2-3 lines in Korean, directorial intent)
-- "imagePrompt": string — MUST start with the camera angle/framing description (e.g. "Dutch tilt, camera angled 20 degrees, ..."), then scene and character details.
+- "imagePrompt": string — MUST follow this exact structure: start with "Black and white storyboard sketch, rough pencil lines, cinematic composition, professional storyboard art. " then the camera angle/framing description (e.g. "High angle bird's eye shot, ..."), then scene and character details.
 
 Return ONLY the JSON array, no markdown, no explanation.`;
 
