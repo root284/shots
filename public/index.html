@@ -699,7 +699,8 @@ async function generateCardImage(index) {
     const imgFile = document.getElementById('image-input').files[0];
     const imgMime = imgFile?.type || null;
 
-    const res = await fetch('/api/generate-image', {
+    // 1단계: 작업 제출 (즉시 jobId 반환)
+    const submitRes = await fetch('/api/generate-image', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -709,33 +710,31 @@ async function generateCardImage(index) {
       }),
       signal: controller.signal,
     });
-    if (!res.ok) {
-      const data = await safeJson(res);
-      throw new Error(data.error || `서버 오류 (${res.status})`);
+    if (!submitRes.ok) {
+      const data = await safeJson(submitRes);
+      throw new Error(data.error || `서버 오류 (${submitRes.status})`);
     }
+    const { jobId } = await submitRes.json();
+    if (!jobId) throw new Error('jobId 없음');
 
-    // SSE 스트림 읽기
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let data = null;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop();
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          data = JSON.parse(line.slice(6));
-        }
-      }
+    // 2단계: 2초마다 폴링
+    let result = null;
+    for (let attempt = 0; attempt < 90; attempt++) {
+      if (controller.signal.aborted) throw new Error('취소됨');
+      await new Promise(r => setTimeout(r, 2000));
+      if (controller.signal.aborted) throw new Error('취소됨');
+
+      const pollRes = await fetch(`/api/image-result?jobId=${jobId}`, { signal: controller.signal });
+      if (!pollRes.ok) throw new Error(`폴링 오류 (${pollRes.status})`);
+      const job = await pollRes.json();
+
+      if (job.status === 'done') { result = job; break; }
+      if (job.status === 'error') throw new Error(job.error || '생성 실패');
+      // pending → 계속 폴링
     }
-    if (!data) throw new Error('응답 없음');
-    if (data.error) throw new Error(data.error);
-    if (!data.imageData) throw new Error('이미지 데이터 없음');
+    if (!result) throw new Error('시간 초과 (3분)');
 
-    imgArea.innerHTML = `<img src="${data.imageData}" alt="generated" loading="lazy">`;
+    imgArea.innerHTML = `<img src="${result.imageData}" alt="generated" loading="lazy">`;
   } catch (err) {
     if (err.name === 'AbortError' || err.message === '취소됨') {
       imgArea.innerHTML = `<div class="card-img-placeholder"><span style="font-size:11px">취소됨</span></div>`;

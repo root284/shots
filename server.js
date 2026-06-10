@@ -199,7 +199,11 @@ Return ONLY the JSON array, no markdown, no explanation.`;
   res.end(JSON.stringify({ angles }));
 }
 
-// ── /api/generate-image  (OpenAI gpt-image-1, SSE keepalive) ─────────────────
+// ── 이미지 작업 큐 (메모리) ───────────────────────────────────────────────────
+const imageJobs = new Map(); // jobId → { status, imageData?, error? }
+let jobCounter = 0;
+
+// ── /api/generate-image  (즉시 jobId 반환 → 백그라운드에서 OpenAI 호출) ────────
 async function generateImage(req, res) {
   if (!OPENAI_KEY) {
     res.writeHead(500, { "Content-Type": "application/json" });
@@ -215,86 +219,100 @@ async function generateImage(req, res) {
     return;
   }
 
+  // 즉시 jobId 반환 (Railway 타임아웃 방지)
+  const jobId = `img_${Date.now()}_${++jobCounter}`;
+  imageJobs.set(jobId, { status: "pending" });
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ jobId }));
+
+  // 백그라운드에서 OpenAI 호출
   const fullPrompt = `black and white storyboard sketch, rough pencil lines, cinematic composition, professional storyboard art, no color — ${prompt}`;
-  console.log("OpenAI prompt (first 150):", fullPrompt.slice(0, 150));
-  console.log("Reference image:", imageBase64 ? "provided" : "none");
+  console.log(`[${jobId}] OpenAI prompt (first 150):`, fullPrompt.slice(0, 150));
+  console.log(`[${jobId}] Reference image:`, imageBase64 ? "provided" : "none");
 
-  // SSE로 응답 — Railway 연결 끊김 방지용 keepalive
-  res.writeHead(200, {
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache",
-    "X-Accel-Buffering": "no",
-  });
-  const keepalive = setInterval(() => {
-    try { res.write(": keepalive\n\n"); } catch {}
-  }, 10_000);
+  (async () => {
+    try {
+      let openaiRes;
 
-  try {
-    let openaiRes;
+      if (imageBase64) {
+        // 레퍼런스 이미지 있을 때 — multipart/form-data로 전송
+        const imgBuffer = Buffer.from(imageBase64, "base64");
+        const boundary = `----FormBoundary${Date.now()}`;
+        const mime = imageMime || "image/jpeg";
+        const ext = mime.split("/")[1] || "jpg";
 
-    if (imageBase64) {
-      // 레퍼런스 이미지 있을 때 — multipart/form-data로 전송
-      const imgBuffer = Buffer.from(imageBase64, "base64");
-      const boundary = `----FormBoundary${Date.now()}`;
-      const mime = imageMime || "image/jpeg";
-      const ext = mime.split("/")[1] || "jpg";
+        const parts = [
+          `--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\ngpt-image-1`,
+          `--${boundary}\r\nContent-Disposition: form-data; name="prompt"\r\n\r\n${fullPrompt}`,
+          `--${boundary}\r\nContent-Disposition: form-data; name="n"\r\n\r\n1`,
+          `--${boundary}\r\nContent-Disposition: form-data; name="size"\r\n\r\n1536x1024`,
+          `--${boundary}\r\nContent-Disposition: form-data; name="quality"\r\n\r\nmedium`,
+        ];
+        const textPart = Buffer.from(parts.join("\r\n") + "\r\n");
+        const imgPart = Buffer.from(
+          `--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="ref.${ext}"\r\nContent-Type: ${mime}\r\n\r\n`
+        );
+        const closing = Buffer.from(`\r\n--${boundary}--\r\n`);
+        const formBody = Buffer.concat([textPart, imgPart, imgBuffer, closing]);
 
-      const parts = [
-        `--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\ngpt-image-1`,
-        `--${boundary}\r\nContent-Disposition: form-data; name="prompt"\r\n\r\n${fullPrompt}`,
-        `--${boundary}\r\nContent-Disposition: form-data; name="n"\r\n\r\n1`,
-        `--${boundary}\r\nContent-Disposition: form-data; name="size"\r\n\r\n1536x1024`,
-        `--${boundary}\r\nContent-Disposition: form-data; name="quality"\r\n\r\nmedium`,
-      ];
-      const textPart = Buffer.from(parts.join("\r\n") + "\r\n");
-      const imgPart = Buffer.from(
-        `--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="ref.${ext}"\r\nContent-Type: ${mime}\r\n\r\n`
-      );
-      const closing = Buffer.from(`\r\n--${boundary}--\r\n`);
-      const formBody = Buffer.concat([textPart, imgPart, imgBuffer, closing]);
+        openaiRes = await fetch("https://api.openai.com/v1/images/generations", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${OPENAI_KEY}`,
+            "Content-Type": `multipart/form-data; boundary=${boundary}`,
+          },
+          body: formBody,
+          signal: AbortSignal.timeout(120_000),
+        });
+      } else {
+        // 레퍼런스 이미지 없을 때 — JSON
+        openaiRes = await fetch("https://api.openai.com/v1/images/generations", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ model: "gpt-image-1", prompt: fullPrompt, n: 1, size: "1536x1024", quality: "medium" }),
+          signal: AbortSignal.timeout(120_000),
+        });
+      }
 
-      openaiRes = await fetch("https://api.openai.com/v1/images/generations", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${OPENAI_KEY}`,
-          "Content-Type": `multipart/form-data; boundary=${boundary}`,
-        },
-        body: formBody,
-        signal: AbortSignal.timeout(120_000),
-      });
-    } else {
-      // 레퍼런스 이미지 없을 때 — JSON
-      openaiRes = await fetch("https://api.openai.com/v1/images/generations", {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "gpt-image-1", prompt: fullPrompt, n: 1, size: "1536x1024", quality: "medium" }),
-        signal: AbortSignal.timeout(120_000),
-      });
+      const openaiText = await openaiRes.text();
+      console.log(`[${jobId}] OpenAI response: status=${openaiRes.status}, body=${openaiText.slice(0, 200)}`);
+
+      if (!openaiRes.ok) {
+        let errMsg = `OpenAI ${openaiRes.status}`;
+        try { errMsg = JSON.parse(openaiText).error?.message || errMsg; } catch {}
+        imageJobs.set(jobId, { status: "error", error: errMsg });
+        return;
+      }
+
+      const b64 = JSON.parse(openaiText).data?.[0]?.b64_json;
+      if (!b64) {
+        imageJobs.set(jobId, { status: "error", error: "No image returned from OpenAI" });
+        return;
+      }
+
+      imageJobs.set(jobId, { status: "done", imageData: `data:image/png;base64,${b64}` });
+      console.log(`[${jobId}] Done.`);
+
+      // 5분 후 메모리에서 제거
+      setTimeout(() => imageJobs.delete(jobId), 5 * 60 * 1000);
+    } catch (e) {
+      console.error(`[${jobId}] OpenAI error:`, e.message);
+      imageJobs.set(jobId, { status: "error", error: e.message });
     }
+  })();
+}
 
-    const openaiText = await openaiRes.text();
-    console.log(`OpenAI response: status=${openaiRes.status}, body=${openaiText.slice(0, 200)}`);
-
-    if (!openaiRes.ok) {
-      let errMsg = `OpenAI ${openaiRes.status}`;
-      try { errMsg = JSON.parse(openaiText).error?.message || errMsg; } catch {}
-      res.end(`data: ${JSON.stringify({ error: errMsg })}\n\n`);
-      return;
-    }
-
-    const b64 = JSON.parse(openaiText).data?.[0]?.b64_json;
-    if (!b64) {
-      res.end(`data: ${JSON.stringify({ error: "No image returned from OpenAI" })}\n\n`);
-      return;
-    }
-
-    res.end(`data: ${JSON.stringify({ imageData: `data:image/png;base64,${b64}` })}\n\n`);
-  } catch (e) {
-    console.error("OpenAI error:", e.message);
-    res.end(`data: ${JSON.stringify({ error: e.message })}\n\n`);
-  } finally {
-    clearInterval(keepalive);
+// ── /api/image-result  (폴링 — 클라이언트가 2초마다 호출) ──────────────────────
+async function imageResult(req, res) {
+  const url = new URL(req.url, "http://localhost");
+  const jobId = url.searchParams.get("jobId");
+  if (!jobId || !imageJobs.has(jobId)) {
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Job not found" }));
+    return;
   }
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(imageJobs.get(jobId)));
 }
 
 // ── 정적 파일 서빙 ────────────────────────────────────────────────────────────
@@ -321,6 +339,8 @@ const server = createServer(async (req, res) => {
       await generateAngles(req, res);
     } else if (req.url === "/api/generate-image" && req.method === "POST") {
       await generateImage(req, res);
+    } else if (req.url.startsWith("/api/image-result") && req.method === "GET") {
+      await imageResult(req, res);
     } else {
       await serveStatic(req, res);
     }
