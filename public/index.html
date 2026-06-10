@@ -672,7 +672,7 @@ function buildFormData(sceneInput, charDesc, count, existingAngles) {
   return fd;
 }
 
-// ── 개별 카드 이미지 생성 ────────────────────────────────────────────────────
+// ── 개별 카드 이미지 생성 (OpenAI gpt-image-1) ──────────────────────────────
 const cardAbortControllers = {};
 
 async function generateCardImage(index) {
@@ -683,7 +683,6 @@ async function generateCardImage(index) {
   const imgArea = document.getElementById(`card-img-area-${index}`);
   if (!btn || !imgArea) return;
 
-  // 기존 생성 중이면 취소
   if (cardAbortControllers[index]) cardAbortControllers[index].abort();
   const controller = new AbortController();
   cardAbortControllers[index] = controller;
@@ -696,36 +695,17 @@ async function generateCardImage(index) {
     </div>`;
 
   try {
-    // 1단계: 제출
-    const submitRes = await fetch('/api/submit-image', {
+    const res = await fetch('/api/generate-image', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt: angle.imagePrompt }),
       signal: controller.signal,
     });
-    const submitData = await safeJson(submitRes);
-    if (!submitRes.ok) throw new Error(submitData.error || `서버 오류 (${submitRes.status})`);
-    const { status_url, response_url } = submitData;
-    if (!status_url) throw new Error('status_url 없음');
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data.error || `서버 오류 (${res.status})`);
+    if (!data.imageData) throw new Error('이미지 데이터 없음');
 
-    // 2단계: 폴링 (1.5초 간격, 최대 60회)
-    let imageUrl = null;
-    for (let i = 0; i < 60; i++) {
-      await new Promise((r, j) => {
-        const t = setTimeout(r, 1500);
-        controller.signal.addEventListener('abort', () => { clearTimeout(t); j(new Error('취소됨')); }, { once: true });
-      });
-      const pollRes = await fetch(
-        `/api/poll-preview-sheet?statusUrl=${encodeURIComponent(status_url)}&responseUrl=${encodeURIComponent(response_url)}`,
-        { signal: controller.signal }
-      );
-      const pollData = await safeJson(pollRes);
-      if (pollData.status === 'done') { imageUrl = pollData.imageUrl; break; }
-      if (pollData.status === 'failed') throw new Error(`생성 실패: ${pollData.error}`);
-    }
-    if (!imageUrl) throw new Error('시간 초과');
-
-    imgArea.innerHTML = `<img src="${imageUrl}" alt="generated" loading="lazy">`;
+    imgArea.innerHTML = `<img src="${data.imageData}" alt="generated" loading="lazy">`;
   } catch (err) {
     if (err.name === 'AbortError' || err.message === '취소됨') {
       imgArea.innerHTML = `<div class="card-img-placeholder"><span style="font-size:11px">취소됨</span></div>`;

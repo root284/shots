@@ -4,11 +4,11 @@ import { readFile, stat } from "node:fs/promises";
 import { join, extname, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const PORT       = process.env.PORT || 3000;
-const GEMINI_KEY = process.env.GEMINI_API_KEY?.trim();
-const FAL_KEY    = process.env.FAL_KEY?.trim();
-const __dirname  = dirname(fileURLToPath(import.meta.url));
-const PUBLIC     = join(__dirname, "public");
+const PORT        = process.env.PORT || 3000;
+const GEMINI_KEY  = process.env.GEMINI_API_KEY?.trim();
+const OPENAI_KEY  = process.env.OPENAI_API_KEY?.trim();
+const __dirname   = dirname(fileURLToPath(import.meta.url));
+const PUBLIC      = join(__dirname, "public");
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -135,7 +135,7 @@ For each imagePrompt:
 Respond with a JSON array of exactly ${count} objects:
 - "angleName": string (from the pool)
 - "koreanDescription": string (2-3 lines in Korean, directorial intent)
-- "imagePrompt": string — MUST start with: "black and white storyboard sketch, rough pencil lines, cinematic composition, professional storyboard art, [camera angle/framing description], ..." then scene and character details.
+- "imagePrompt": string — MUST start with the camera angle/framing description (e.g. "Dutch tilt, camera angled 20 degrees, ..."), then scene and character details.
 
 Return ONLY the JSON array, no markdown, no explanation.`;
 
@@ -199,177 +199,61 @@ Return ONLY the JSON array, no markdown, no explanation.`;
   res.end(JSON.stringify({ angles }));
 }
 
-const SKETCH_PREFIX = "black and white storyboard sketch, rough pencil lines, cinematic composition, professional storyboard art, no color — ";
-// 큐 제출에 사용할 모델 목록 (앞에서부터 순서대로 시도)
-const FAL_MODELS = [
-  "fal-ai/flux/schnell",
-  "fal-ai/fast-lightning-sdxl",
-];
-
-// fal.ai 큐에 제출, 실패 시 다음 모델로 폴백
-async function falQueueSubmit(prompt, imageSize = "landscape_16_9") {
-  let lastError = "";
-  for (const model of FAL_MODELS) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const res = await fetch(`https://queue.fal.run/${model}`, {
-          method: "POST",
-          headers: { "Authorization": `Key ${FAL_KEY}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt, image_size: imageSize, num_inference_steps: 1, num_images: 1 }),
-          signal: AbortSignal.timeout(20_000),
-        });
-        const text = await res.text();
-        console.log(`fal submit [${model}] attempt ${attempt+1}: status=${res.status}, body=${text.slice(0,200)}`);
-        if (res.ok) {
-          const data = JSON.parse(text);
-          if (data.request_id) return { request_id: data.request_id, model, status_url: data.status_url, response_url: data.response_url };
-        }
-        lastError = `${model} ${res.status}: ${text.slice(0, 100)}`;
-        if (attempt === 0) await new Promise(r => setTimeout(r, 1500)); // 재시도 전 잠시 대기
-      } catch (e) {
-        lastError = `${model}: ${e.message}`;
-        if (attempt === 0) await new Promise(r => setTimeout(r, 1500));
-      }
-    }
-  }
-  throw new Error(`fal.ai 제출 실패: ${lastError}`);
-}
-
-// ── /api/submit-image  (범용: prompt → fal.ai 큐 제출 → request_id 반환) ────
-async function submitImage(req, res) {
-  if (!FAL_KEY) {
+// ── /api/generate-image  (OpenAI gpt-image-1) ────────────────────────────────
+async function generateImage(req, res) {
+  if (!OPENAI_KEY) {
     res.writeHead(500, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "FAL_KEY not configured on server" }));
+    res.end(JSON.stringify({ error: "OPENAI_API_KEY not configured on server" }));
     return;
   }
-  const raw = await readBody(req);
-  const { prompt } = JSON.parse(raw.toString());
+
+  const { prompt } = JSON.parse((await readBody(req)).toString());
   if (!prompt?.trim()) {
     res.writeHead(400, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "prompt required" }));
     return;
   }
 
-  const fullPrompt = SKETCH_PREFIX + prompt;
-  console.log("Image prompt (first 150):", fullPrompt.slice(0, 150));
-  const { request_id, model, status_url, response_url } = await falQueueSubmit(fullPrompt, "landscape_16_9");
-  console.log(`Submitted to ${model}, request_id=${request_id}`);
-  res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ request_id, model, status_url, response_url }));
-}
+  const fullPrompt = `black and white storyboard sketch, rough pencil lines, cinematic composition, professional storyboard art, no color — ${prompt}`;
+  console.log("OpenAI image prompt (first 150):", fullPrompt.slice(0, 150));
 
-// ── /api/submit-preview-sheet  (큐에 제출 → request_id 즉시 반환) ───────────
-async function submitPreviewSheet(req, res) {
-  if (!FAL_KEY) {
-    res.writeHead(500, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "FAL_KEY not configured on server" }));
-    return;
-  }
-
-  const raw = await readBody(req);
-  const { angles } = JSON.parse(raw.toString());
-  if (!angles?.length) {
-    res.writeHead(400, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "angles required" }));
-    return;
-  }
-
-  const sheetPrompt = buildSheetPrompt(angles);
-  console.log("Sheet prompt (first 200):", sheetPrompt.slice(0, 200));
-
-  const submitRes = await fetch("https://queue.fal.run/fal-ai/flux/schnell", {
+  const openaiRes = await fetch("https://api.openai.com/v1/images/generations", {
     method: "POST",
-    headers: { "Authorization": `Key ${FAL_KEY}`, "Content-Type": "application/json" },
+    headers: {
+      "Authorization": `Bearer ${OPENAI_KEY}`,
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify({
-      prompt: sheetPrompt,
-      image_size: "square",
-      num_inference_steps: 4,
-      num_images: 1,
+      model: "gpt-image-1",
+      prompt: fullPrompt,
+      n: 1,
+      size: "1536x1024",
+      quality: "low",
     }),
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(120_000),
   });
 
-  const submitText = await submitRes.text();
-  console.log(`fal.ai submit: status=${submitRes.status}, body=${submitText.slice(0, 200)}`);
+  const openaiText = await openaiRes.text();
+  console.log(`OpenAI response: status=${openaiRes.status}, body=${openaiText.slice(0, 200)}`);
 
-  if (!submitRes.ok) {
+  if (!openaiRes.ok) {
+    let errMsg = `OpenAI ${openaiRes.status}`;
+    try { errMsg = JSON.parse(openaiText).error?.message || errMsg; } catch {}
     res.writeHead(502, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: `fal.ai submit ${submitRes.status}: ${submitText.slice(0, 200)}` }));
+    res.end(JSON.stringify({ error: errMsg }));
     return;
   }
 
-  const { request_id } = JSON.parse(submitText);
-  if (!request_id) {
+  const openaiData = JSON.parse(openaiText);
+  const b64 = openaiData.data?.[0]?.b64_json;
+  if (!b64) {
     res.writeHead(502, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "fal.ai: no request_id" }));
+    res.end(JSON.stringify({ error: "No image returned from OpenAI" }));
     return;
   }
 
   res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ request_id }));
-}
-
-// ── /api/poll-preview-sheet?id=...  (클라이언트가 주기적으로 호출) ────────────
-async function pollPreviewSheet(req, res) {
-  if (!FAL_KEY) {
-    res.writeHead(500, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "FAL_KEY not configured" }));
-    return;
-  }
-
-  const params = new URL(req.url, "http://x").searchParams;
-  const statusUrl = params.get("statusUrl");
-  const responseUrl = params.get("responseUrl");
-  if (!statusUrl) {
-    res.writeHead(400, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "statusUrl required" }));
-    return;
-  }
-
-  // 1) status_url 로 완료 여부 확인 (fal.ai가 직접 준 URL 사용)
-  const statusRes = await fetch(statusUrl,
-    { headers: { "Authorization": `Key ${FAL_KEY}` }, signal: AbortSignal.timeout(15_000) }
-  );
-  const statusText = await statusRes.text();
-  console.log(`fal.ai status: ${statusRes.status} ${statusText.slice(0,150)}`);
-
-  if (!statusRes.ok) {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "pending" }));
-    return;
-  }
-
-  const statusData = JSON.parse(statusText);
-
-  if (statusData.status === "FAILED") {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "failed", error: statusData.error || "unknown" }));
-    return;
-  }
-
-  if (statusData.status !== "COMPLETED") {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "pending", queuePosition: statusData.queue_position }));
-    return;
-  }
-
-  // 2) COMPLETED → response_url 로 결과 가져오기
-  const resultRes = await fetch(responseUrl,
-    { headers: { "Authorization": `Key ${FAL_KEY}` }, signal: AbortSignal.timeout(15_000) }
-  );
-  const resultText = await resultRes.text();
-  console.log(`fal.ai result: ${resultRes.status} ${resultText.slice(0,150)}`);
-
-  const resultData = JSON.parse(resultText);
-  const imageUrl = resultData.images?.[0]?.url;
-  if (!imageUrl) {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "failed", error: "no image in result" }));
-    return;
-  }
-
-  res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ status: "done", imageUrl }));
+  res.end(JSON.stringify({ imageData: `data:image/png;base64,${b64}` }));
 }
 
 // ── 정적 파일 서빙 ────────────────────────────────────────────────────────────
@@ -394,12 +278,8 @@ const server = createServer(async (req, res) => {
   try {
     if (req.url === "/api/generate-angles" && req.method === "POST") {
       await generateAngles(req, res);
-    } else if (req.url === "/api/submit-image" && req.method === "POST") {
-      await submitImage(req, res);
-    } else if (req.url === "/api/submit-preview-sheet" && req.method === "POST") {
-      await submitPreviewSheet(req, res);
-    } else if (req.url.startsWith("/api/poll-preview-sheet") && req.method === "GET") {
-      await pollPreviewSheet(req, res);
+    } else if (req.url === "/api/generate-image" && req.method === "POST") {
+      await generateImage(req, res);
     } else {
       await serveStatic(req, res);
     }
@@ -417,6 +297,6 @@ process.on("unhandledRejection", (e) => console.error("Unhandled:", e));
 
 server.listen(PORT, () => {
   console.log(`shots.qpola.net server running on port ${PORT}`);
-  console.log(`GEMINI_KEY: ${GEMINI_KEY ? '✓ set' : '✗ MISSING'}`);
-  console.log(`FAL_KEY: ${FAL_KEY ? '✓ set' : '✗ MISSING'}`);
+  console.log(`GEMINI_KEY:  ${GEMINI_KEY  ? '✓ set' : '✗ MISSING'}`);
+  console.log(`OPENAI_KEY:  ${OPENAI_KEY  ? '✓ set' : '✗ MISSING'}`);
 });
