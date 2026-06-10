@@ -215,7 +215,7 @@ async function falQueueSubmit(prompt, imageSize = "landscape_16_9") {
         const res = await fetch(`https://queue.fal.run/${model}`, {
           method: "POST",
           headers: { "Authorization": `Key ${FAL_KEY}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt, image_size: imageSize, num_inference_steps: 4, num_images: 1 }),
+          body: JSON.stringify({ prompt, image_size: imageSize, num_inference_steps: 1, num_images: 1 }),
           signal: AbortSignal.timeout(20_000),
         });
         const text = await res.text();
