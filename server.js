@@ -135,7 +135,7 @@ For each imagePrompt:
 Respond with a JSON array of exactly ${count} objects:
 - "angleName": string (from the pool)
 - "koreanDescription": string (2-3 lines in Korean, directorial intent)
-- "imagePrompt": string — MUST start with the camera angle/framing description (e.g. "Dutch tilt, camera angled 20 degrees, ..."), then scene and character details. This front-loading ensures the composition is captured first.
+- "imagePrompt": string — MUST start with: "black and white storyboard sketch, rough pencil lines, cinematic composition, professional storyboard art, [camera angle/framing description], ..." then scene and character details.
 
 Return ONLY the JSON array, no markdown, no explanation.`;
 
@@ -341,10 +341,11 @@ async function pollPreviewSheet(req, res) {
 
   const pollData = JSON.parse(pollText);
 
-  // 완료: 이미지 URL 반환
-  if (pollData.images?.[0]?.url) {
+  // 완료: 큐 API는 output.images, 동기 API는 images 직접
+  const imageUrl = pollData.output?.images?.[0]?.url || pollData.images?.[0]?.url;
+  if (imageUrl || pollData.status === "COMPLETED") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "done", imageUrl: pollData.images[0].url }));
+    res.end(JSON.stringify({ status: "done", imageUrl: imageUrl || pollData.output?.images?.[0]?.url }));
     return;
   }
 
