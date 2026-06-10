@@ -267,37 +267,34 @@ async function generateImage(req, res) {
     try {
       // ── DALL-E 3: JSON만 지원, 응답은 url ──────────────────────────────────
       // DALL-E 3 자체가 내부적으로 프롬프트를 강화하므로 GPT-4o 전처리 생략
-      console.log(`[${jobId}] Calling DALL-E 3...`);
+      console.log(`[${jobId}] Calling gpt-image-1...`);
       const openaiRes = await fetch("https://api.openai.com/v1/images/generations", {
         method: "POST",
         headers: { "Authorization": `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "dall-e-3",
+          model: "gpt-image-1",
           prompt,
           n: 1,
-          size: "1792x1024",
-          quality: "hd",
+          size: "1536x1024",
+          quality: "high",
         }),
         signal: AbortSignal.timeout(120_000),
       });
 
       const openaiText = await openaiRes.text();
-      console.log(`[${jobId}] DALL-E 3 response: status=${openaiRes.status}, body=${openaiText.slice(0, 300)}`);
+      console.log(`[${jobId}] OpenAI response: status=${openaiRes.status}, body=${openaiText.slice(0, 300)}`);
 
       if (!openaiRes.ok) {
-        let errMsg = `DALL-E 3 오류 (${openaiRes.status})`;
+        let errMsg = `OpenAI 오류 (${openaiRes.status})`;
         try { errMsg = JSON.parse(openaiText).error?.message || errMsg; } catch {}
         jobs.set(jobId, { status: "error", error: errMsg });
         return;
       }
 
-      const imageUrl = JSON.parse(openaiText).data?.[0]?.url;
-      if (!imageUrl) { jobs.set(jobId, { status: "error", error: "No image returned from DALL-E 3" }); return; }
+      const b64 = JSON.parse(openaiText).data?.[0]?.b64_json;
+      if (!b64) { jobs.set(jobId, { status: "error", error: "No image returned from OpenAI" }); return; }
 
-      // url → base64 변환 (클라이언트에 일관된 형식으로 전달)
-      const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(30_000) });
-      const imgBuf = Buffer.from(await imgRes.arrayBuffer());
-      const imageData = `data:image/png;base64,${imgBuf.toString("base64")}`;
+      const imageData = `data:image/png;base64,${b64}`;
 
       jobs.set(jobId, { status: "done", result: { imageData } });
       console.log(`[${jobId}] Image done.`);
