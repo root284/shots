@@ -326,39 +326,53 @@ async function pollPreviewSheet(req, res) {
     return;
   }
 
-  const pollRes = await fetch(
+  // 1) /status 로 완료 여부 확인
+  const statusRes = await fetch(
+    `https://queue.fal.run/${model}/requests/${id}/status`,
+    { headers: { "Authorization": `Key ${FAL_KEY}` }, signal: AbortSignal.timeout(15_000) }
+  );
+  const statusText = await statusRes.text();
+  console.log(`fal.ai status id=${id.slice(0,8)}: ${statusRes.status} ${statusText.slice(0,150)}`);
+
+  if (!statusRes.ok) {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: "pending" }));
+    return;
+  }
+
+  const statusData = JSON.parse(statusText);
+
+  if (statusData.status === "FAILED") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: "failed", error: statusData.error || "unknown" }));
+    return;
+  }
+
+  if (statusData.status !== "COMPLETED") {
+    // 아직 대기 중
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: "pending", queuePosition: statusData.queue_position }));
+    return;
+  }
+
+  // 2) COMPLETED → 결과 가져오기
+  const resultRes = await fetch(
     `https://queue.fal.run/${model}/requests/${id}`,
     { headers: { "Authorization": `Key ${FAL_KEY}` }, signal: AbortSignal.timeout(15_000) }
   );
-  const pollText = await pollRes.text();
-  console.log(`fal.ai poll id=${id.slice(0,8)}: status=${pollRes.status}, body=${pollText.slice(0,200)}`);
+  const resultText = await resultRes.text();
+  console.log(`fal.ai result id=${id.slice(0,8)}: ${resultRes.status} ${resultText.slice(0,150)}`);
 
-  if (!pollRes.ok) {
-    res.writeHead(pollRes.status, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: `poll error ${pollRes.status}` }));
-    return;
-  }
-
-  const pollData = JSON.parse(pollText);
-
-  // 완료: 큐 API는 output.images, 동기 API는 images 직접
-  const imageUrl = pollData.output?.images?.[0]?.url || pollData.images?.[0]?.url;
-  if (imageUrl || pollData.status === "COMPLETED") {
+  const resultData = JSON.parse(resultText);
+  const imageUrl = resultData.images?.[0]?.url || resultData.output?.images?.[0]?.url;
+  if (!imageUrl) {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "done", imageUrl: imageUrl || pollData.output?.images?.[0]?.url }));
+    res.end(JSON.stringify({ status: "failed", error: "no image in result" }));
     return;
   }
 
-  // 실패
-  if (pollData.status === "FAILED") {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "failed", error: pollData.error || "unknown" }));
-    return;
-  }
-
-  // 아직 처리 중
   res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ status: "pending", queuePosition: pollData.queue_position }));
+  res.end(JSON.stringify({ status: "done", imageUrl }));
 }
 
 // ── 정적 파일 서빙 ────────────────────────────────────────────────────────────
