@@ -6,28 +6,27 @@
 <title>SHOTS — Cinematic Angle Generator</title>
 <style>
   :root {
-    --bg: #0a0a0a;
-    --surface: #111111;
-    --surface2: #1a1a1a;
+    --bg: #0d0d0d;
+    --surface: #161616;
+    --surface2: #1f1f1f;
     --border: #2a2a2a;
     --border-active: #444;
-    --text: #e8e8e8;
-    --text-dim: #888;
-    --text-muted: #555;
+    --text: #f0f0f0;
+    --text-dim: #aaa;
+    --text-muted: #666;
     --accent: #c8a96e;
     --accent-dim: #8a7048;
     --danger: #e05555;
     --success: #5ea85e;
     --radius: 6px;
-    --card-w: 340px;
-    --box-h: 124px;
+    --card-w: 380px;
   }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     background: var(--bg);
     color: var(--text);
     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-    font-size: 14px;
+    font-size: 15px;
     min-height: 100vh;
     display: flex;
     flex-direction: column;
@@ -39,83 +38,130 @@
     padding: 18px 32px;
     display: flex;
     align-items: baseline;
-    gap: 16px;
+    gap: 14px;
   }
-  header h1 {
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.25em;
-    text-transform: uppercase;
-    color: var(--accent);
-  }
-  header span {
-    font-size: 11px;
-    color: var(--text-muted);
-    letter-spacing: 0.1em;
-  }
+  header h1 { font-size: 14px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; color: var(--accent); }
+  header span { font-size: 12px; color: var(--text-muted); letter-spacing: 0.06em; }
 
   /* ── Input panel ── */
   .input-panel {
     border-bottom: 1px solid var(--border);
-    padding: 28px 32px;
+    padding: 20px 32px;
     display: flex;
-    gap: 20px;
-    flex-wrap: wrap;
-    align-items: flex-start;
+    flex-direction: column;
+    gap: 16px;
   }
   .field-label {
     display: block;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--text-muted);
+    margin-bottom: 7px;
+  }
+
+  /* ── Character section ── */
+  .char-section-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .char-section-header .field-label { margin-bottom: 0; flex-shrink: 0; }
+  .btn-add-char {
+    background: none;
+    border: 1px solid var(--border-active);
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-family: inherit;
     font-size: 11px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--text-dim);
-    margin-bottom: 8px;
-    height: 14px;
-    line-height: 14px;
+    letter-spacing: 0.05em;
+    padding: 3px 10px;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+    white-space: nowrap;
   }
-  .upload-group {
-    display: flex;
-    flex-direction: column;
-    flex-shrink: 0;
-  }
-  .input-group {
-    flex: 1;
-    min-width: 280px;
-    display: flex;
-    flex-direction: column;
-  }
-  .btn-group {
-    display: flex;
-    flex-direction: column;
-    flex-shrink: 0;
-  }
-  textarea {
+  .btn-add-char:hover { border-color: var(--accent-dim); color: var(--accent); }
+  .btn-add-char:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  .char-slots { display: flex; flex-wrap: wrap; gap: 10px; }
+
+  .char-slot {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 220px;
+    flex-shrink: 0;
+    position: relative;
+  }
+  .char-slot-num {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    opacity: 0.7;
+  }
+  .char-name-input {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
     color: var(--text);
     font-family: inherit;
-    font-size: 14px;
-    line-height: 1.6;
-    padding: 12px 14px;
-    resize: none;
-    height: var(--box-h);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 7px 10px;
     outline: none;
     transition: border-color 0.15s;
+    width: 100%;
   }
-  textarea:focus { border-color: var(--border-active); }
-  textarea::placeholder { color: var(--text-muted); }
+  .char-name-input:focus { border-color: var(--border-active); }
+  .char-name-input::placeholder { color: var(--text-muted); font-weight: 400; }
+  .char-desc-input {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-dim);
+    font-family: inherit;
+    font-size: 12px;
+    line-height: 1.6;
+    padding: 7px 10px;
+    outline: none;
+    resize: none;
+    height: 72px;
+    transition: border-color 0.15s;
+    width: 100%;
+  }
+  .char-desc-input:focus { border-color: var(--border-active); }
+  .char-desc-input::placeholder { color: var(--text-muted); }
+  .btn-remove-char {
+    position: absolute;
+    top: 8px; right: 8px;
+    background: none; border: none;
+    color: var(--border-active);
+    font-size: 16px; line-height: 1;
+    cursor: pointer; padding: 2px 4px;
+    transition: color 0.15s;
+  }
+  .btn-remove-char:hover { color: var(--danger); }
 
+  /* ── Scene row (image + description + button) ── */
+  .scene-row {
+    display: flex;
+    gap: 14px;
+    align-items: stretch;
+  }
+  .upload-group { display: flex; flex-direction: column; flex-shrink: 0; }
   .upload-area {
     background: var(--surface);
-    border: 1px dashed var(--border);
+    border: 1px dashed var(--border-active);
     border-radius: var(--radius);
     cursor: pointer;
     text-align: center;
     transition: border-color 0.15s, background 0.15s;
-    width: 220px;
-    aspect-ratio: 16 / 9;
-    flex-shrink: 0;
+    width: 160px;
+    height: 96px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -125,274 +171,210 @@
   .upload-area:hover { border-color: var(--accent-dim); background: var(--surface2); }
   .upload-area.has-image { border-style: solid; border-color: var(--accent-dim); }
   .upload-area input[type=file] { display: none; }
-  .upload-area .upload-hint {
-    font-size: 11px;
-    color: var(--text-muted);
-    line-height: 1.6;
-    padding: 0 12px;
-  }
+  .upload-area .upload-hint { font-size: 11px; color: var(--text-muted); line-height: 1.8; }
   .upload-preview {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    border-radius: 4px;
-    display: none;
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover; display: none;
   }
   .upload-preview.visible { display: block; }
 
+  .input-group { flex: 1; display: flex; flex-direction: column; }
+  textarea {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1.65;
+    padding: 10px 12px;
+    resize: none;
+    flex: 1;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  textarea:focus { border-color: var(--border-active); }
+  textarea::placeholder { color: var(--text-muted); font-size: 12px; }
+
+  .generate-wrap {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    justify-content: flex-end;
+  }
   .btn-primary {
     background: var(--accent);
-    color: #0a0a0a;
+    color: #0d0d0d;
     border: none;
     border-radius: var(--radius);
     font-family: inherit;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    padding: 12px 28px;
-    cursor: pointer;
-    transition: opacity 0.15s;
+    font-size: 12px; font-weight: 700;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    cursor: pointer; transition: opacity 0.15s;
     white-space: nowrap;
-    height: var(--box-h);
+    width: 100px;
+    height: 96px;
   }
   .btn-primary:hover { opacity: 0.85; }
   .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 
-  /* ── Toolbar ── */
-  .toolbar {
-    display: none;
-    padding: 16px 32px;
-    border-bottom: 1px solid var(--border);
-    align-items: center;
-    gap: 16px;
+  /* ── 프리셋 칩 공통 ── */
+  .preset-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
   }
-  .toolbar.visible { display: flex; }
-  .toolbar-label {
-    font-size: 11px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--text-dim);
-    flex: 1;
-  }
-  .btn-secondary {
+  .preset-chip {
     background: var(--surface2);
     border: 1px solid var(--border);
-    color: var(--text-dim);
-    border-radius: var(--radius);
+    border-radius: 20px;
+    color: var(--text-muted);
     font-family: inherit;
     font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    padding: 9px 18px;
+    padding: 3px 10px;
     cursor: pointer;
     transition: border-color 0.15s, color 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .preset-chip:hover { border-color: var(--accent-dim); color: var(--text-dim); }
+  .preset-chip-del {
+    color: var(--border-active);
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    transition: color 0.15s;
+  }
+  .preset-chip-del:hover { color: var(--danger); }
+  .btn-save-preset {
+    background: none;
+    border: 1px solid var(--border-active);
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    padding: 3px 10px;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+    white-space: nowrap;
+  }
+  .btn-save-preset:hover { border-color: var(--accent-dim); color: var(--accent); }
+
+  /* ── Scene label row ── */
+  .scene-label-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 7px;
+  }
+  .scene-label-row .field-label { margin-bottom: 0; flex-shrink: 0; }
+
+  /* ── Toolbar ── */
+  .toolbar { display: none; padding: 12px 32px; border-bottom: 1px solid var(--border); align-items: center; gap: 12px; }
+  .toolbar.visible { display: flex; }
+  .toolbar-label { font-size: 12px; color: var(--text-muted); flex: 1; letter-spacing: 0.04em; }
+  .btn-secondary {
+    background: transparent; border: 1px solid var(--border-active); color: var(--text-dim);
+    border-radius: var(--radius); font-family: inherit; font-size: 11px; font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase; padding: 7px 16px;
+    cursor: pointer; transition: border-color 0.15s, color 0.15s;
   }
   .btn-secondary:hover { border-color: var(--accent-dim); color: var(--accent); }
   .btn-secondary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ── Status bar ── */
+  .status-bar { display: none; padding: 11px 32px; font-size: 13px; border-bottom: 1px solid var(--border); align-items: center; gap: 10px; }
+  .status-bar.visible { display: flex; }
+  .status-bar.error { color: var(--danger); }
+  .status-bar.loading { color: var(--text-dim); }
+  .status-spinner {
+    width: 14px; height: 14px;
+    border: 2px solid var(--border-active); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin 0.8s linear infinite; flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Empty state ── */
+  .empty-state { flex: 1; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; padding: 80px 32px; }
+  .empty-state-title { font-size: 13px; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; color: var(--text-muted); }
+  .empty-state-sub { font-size: 13px; color: var(--text-muted); text-align: center; max-width: 380px; line-height: 1.9; }
+  .grid-lines { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 20px; opacity: 0.15; }
+  .grid-line-cell { width: 56px; height: 36px; border: 1px solid var(--border-active); border-radius: 3px; }
 
   /* ── Cards grid ── */
   .cards-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(var(--card-w), 1fr));
-    gap: 1px;
-    background: var(--border);
-    flex: 1;
+    gap: 1px; background: var(--border); flex: 1;
   }
-  .card {
+  .card { background: var(--bg); display: flex; flex-direction: column; }
+  .card-body { padding: 16px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+  .card-header { display: flex; align-items: center; gap: 9px; }
+  .card-num { font-size: 10px; color: var(--accent); font-weight: 700; letter-spacing: 0.1em; opacity: 0.7; flex-shrink: 0; }
+  .card-angle-name { font-size: 14px; font-weight: 700; letter-spacing: 0.03em; color: var(--text); text-transform: uppercase; }
+  .card-description { font-size: 13px; line-height: 1.75; color: var(--text-dim); }
+  .card-prompt-wrap { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .card-prompt-header { display: flex; align-items: center; justify-content: space-between; }
+  .card-prompt-label { font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); }
+  .btn-copy { background: none; border: 1px solid var(--border-active); border-radius: 4px; color: var(--text-muted); font-family: inherit; font-size: 10px; letter-spacing: 0.06em; padding: 3px 9px; cursor: pointer; transition: border-color 0.15s, color 0.15s; }
+  .btn-copy:hover { border-color: var(--accent-dim); color: var(--accent); }
+  .btn-copy.copied { border-color: var(--success); color: var(--success); }
+  .card-prompt { font-size: 11px; line-height: 1.65; color: var(--text-muted); font-style: italic; }
+
+  /* ── 프리뷰 시트 카드 ── */
+  .card-sheet {
     background: var(--bg);
     display: flex;
     flex-direction: column;
-    gap: 0;
   }
-
-  .card-image-area {
-    background: var(--surface);
-    aspect-ratio: 16/9;
-    position: relative;
-    overflow: hidden;
-  }
-  .card-image-area img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-  }
-  .card-placeholder {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .card-placeholder-inner {
-    text-align: center;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-  }
-  .card-index {
-    font-size: 28px;
-    font-weight: 700;
-    color: var(--border);
-    line-height: 1;
-  }
-  .card-angle-name-small {
-    font-size: 10px;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    color: var(--text-muted);
-  }
-  .card-spinner {
-    width: 22px;
-    height: 22px;
-    border: 2px solid var(--border);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  .card-body {
+  .card-sheet-body {
     padding: 16px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
     flex: 1;
   }
-  .card-header {
+  .card-sheet-header {
     display: flex;
-    align-items: baseline;
-    gap: 10px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 9px;
   }
-  .card-num {
-    font-size: 10px;
-    color: var(--accent);
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    flex-shrink: 0;
+  .card-sheet-title {
+    display: flex;
+    align-items: center;
+    gap: 9px;
   }
-  .card-angle-name {
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    color: var(--text);
-    text-transform: uppercase;
+  .card-sheet-img {
+    width: 100%;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    display: block;
   }
-  .card-description {
-    font-size: 12px;
-    line-height: 1.65;
-    color: var(--text-dim);
-  }
-  .card-prompt-wrap {
+  .card-sheet-placeholder {
     display: flex;
     flex-direction: column;
-    gap: 5px;
-  }
-  .card-prompt-label {
-    font-size: 10px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--text-muted);
-  }
-  .card-prompt {
-    font-size: 11px;
-    line-height: 1.5;
-    color: var(--text-muted);
-    font-style: italic;
-  }
-  .card-footer {
-    padding: 0 16px 16px;
-  }
-  .btn-gen-image {
-    width: 100%;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    color: var(--text-dim);
-    border-radius: var(--radius);
-    font-family: inherit;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    padding: 9px;
-    cursor: pointer;
-    transition: border-color 0.15s, color 0.15s, background 0.15s;
-  }
-  .btn-gen-image:hover { border-color: var(--accent-dim); color: var(--accent); }
-  .btn-gen-image:disabled { opacity: 0.4; cursor: not-allowed; }
-  .btn-gen-image.generating {
-    color: var(--text-muted);
-    border-color: var(--border);
-    cursor: not-allowed;
-  }
-  .btn-gen-image.done {
-    border-color: var(--success);
-    color: var(--success);
-  }
-
-  /* ── Status / Error ── */
-  .status-bar {
-    display: none;
-    padding: 12px 32px;
-    font-size: 12px;
-    letter-spacing: 0.05em;
-    border-bottom: 1px solid var(--border);
-    align-items: center;
-    gap: 12px;
-  }
-  .status-bar.visible { display: flex; }
-  .status-bar.error { color: var(--danger); }
-  .status-bar.loading { color: var(--text-dim); }
-  .status-spinner {
-    width: 14px;
-    height: 14px;
-    border: 2px solid var(--border);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-    flex-shrink: 0;
-  }
-
-  /* ── Empty state ── */
-  .empty-state {
-    flex: 1;
-    display: flex;
     align-items: center;
     justify-content: center;
-    flex-direction: column;
-    gap: 12px;
-    padding: 80px 32px;
-  }
-  .empty-state-title {
-    font-size: 13px;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: var(--border-active);
-  }
-  .empty-state-sub {
-    font-size: 12px;
+    gap: 10px;
+    background: var(--surface);
+    border: 1px dashed var(--border-active);
+    border-radius: 4px;
+    padding: 32px 16px;
     color: var(--text-muted);
+    font-size: 12px;
     text-align: center;
-    max-width: 400px;
-    line-height: 1.7;
+    line-height: 1.8;
   }
-  .grid-lines {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
-    margin-bottom: 24px;
-    opacity: 0.25;
-  }
-  .grid-line-cell {
-    width: 60px;
-    height: 40px;
-    border: 1px solid var(--border-active);
-    border-radius: 3px;
+  .card-sheet-spinner {
+    width: 28px; height: 28px;
+    border: 2px solid var(--border-active); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+    margin: 0 auto;
   }
 </style>
 </head>
@@ -404,24 +386,43 @@
 </header>
 
 <div class="input-panel">
-  <div class="upload-group">
-    <span class="field-label">장면 이미지</span>
-    <label class="upload-area" id="upload-area">
-      <input type="file" id="image-input" accept="image/*">
-      <img class="upload-preview" id="upload-preview" alt="preview">
-      <span class="upload-hint" id="upload-hint">이미지를 올리면 해당 장면을<br>9가지 앵글로 재구성합니다</span>
-    </label>
+
+  <!-- 캐릭터 슬롯들 -->
+  <div>
+    <div class="char-section-header">
+      <span class="field-label">캐릭터</span>
+      <button class="btn-add-char" id="btn-add-char" onclick="addCharSlot()">+ 추가</button>
+      <button class="btn-save-preset" onclick="saveCharPreset()">저장</button>
+    </div>
+    <div class="char-slots" id="char-slots"></div>
+    <div class="preset-chips" id="char-presets"></div>
   </div>
 
-  <div class="input-group">
-    <span class="field-label">장면 설명 <span style="color:var(--text-muted);font-weight:400">(선택)</span></span>
-    <textarea id="scene-input" placeholder="이미지 없이 텍스트만으로도 생성 가능합니다. 이미지와 함께 쓰면 추가 맥락을 제공할 수 있습니다." rows="4"></textarea>
+  <!-- 장면 이미지 + 설명 + 생성 버튼 -->
+  <div class="scene-row">
+    <div class="upload-group">
+      <span class="field-label">장면 이미지</span>
+      <label class="upload-area" id="upload-area-scene">
+        <input type="file" id="image-input" accept="image/*" onchange="previewUpload(this,'preview-scene','hint-scene','upload-area-scene')">
+        <img class="upload-preview" id="preview-scene" alt="preview">
+        <span class="upload-hint" id="hint-scene">이미지<br>업로드</span>
+      </label>
+    </div>
+
+    <div class="input-group">
+      <div class="scene-label-row">
+        <span class="field-label">장면 설명 <span style="font-weight:400;text-transform:none">(선택)</span></span>
+        <button class="btn-save-preset" onclick="saveScenePreset()">저장</button>
+      </div>
+      <textarea id="scene-input" placeholder="어떤 장면인지 설명하세요. 이미지만 올려도 생성됩니다."></textarea>
+      <div class="preset-chips" id="scene-presets"></div>
+    </div>
+
+    <div class="generate-wrap">
+      <button class="btn-primary" id="generate-btn" onclick="generateAngles()">앵글<br>생성</button>
+    </div>
   </div>
 
-  <div class="btn-group">
-    <span class="field-label">&nbsp;</span>
-    <button class="btn-primary" id="generate-btn" onclick="generateAngles()">앵글 생성</button>
-  </div>
 </div>
 
 <div class="status-bar" id="status-bar">
@@ -431,7 +432,8 @@
 
 <div class="toolbar" id="toolbar">
   <span class="toolbar-label" id="toolbar-label">9개 앵글 카드 생성됨</span>
-  <button class="btn-secondary" id="gen-all-btn" onclick="generateAllImages()">전체 이미지 생성</button>
+  <button class="btn-secondary" id="regen-btn" onclick="generateAngles()">재생성</button>
+  <button class="btn-secondary" id="gen-sheet-btn" onclick="generatePreviewSheet()">프리뷰 시트</button>
 </div>
 
 <div id="main-content">
@@ -449,22 +451,165 @@
 
 <script>
 let currentAngles = [];
+let sceneImageBase64 = null;
+let charSlotCount = 0;
+const MAX_CHARS = 6;
 
-// ── 이미지 업로드 ──────────────────────────────────────────────────────────────
-document.getElementById('image-input').addEventListener('change', (e) => {
-  const file = e.target.files[0];
+// ── 캐릭터 슬롯 ──────────────────────────────────────────────────────────────
+function addCharSlot() {
+  if (charSlotCount >= MAX_CHARS) return;
+  const i = charSlotCount++;
+  const slot = document.createElement('div');
+  slot.className = 'char-slot';
+  slot.id = `char-slot-${i}`;
+  slot.innerHTML = `
+    <span class="char-slot-num">캐릭터 ${i + 1}</span>
+    <button class="btn-remove-char" onclick="removeCharSlot(${i})" title="삭제">×</button>
+    <input class="char-name-input" id="char-name-${i}" type="text" placeholder="이름 (예: 민준)">
+    <textarea class="char-desc-input" id="char-desc-${i}" placeholder="외모 설명&#10;예: 30대 남성, 검은 단발&#10;회색 롱코트, 날카로운 눈매"></textarea>
+  `;
+  document.getElementById('char-slots').appendChild(slot);
+  document.getElementById('btn-add-char').disabled = charSlotCount >= MAX_CHARS;
+}
+
+function removeCharSlot(i) {
+  document.getElementById(`char-slot-${i}`)?.remove();
+  charSlotCount = Math.max(0, charSlotCount - 1);
+  document.getElementById('btn-add-char').disabled = false;
+}
+
+// ── 캐릭터 프리셋 ────────────────────────────────────────────────────────────
+const CHAR_PRESET_KEY = 'shots_char_presets';
+
+function saveCharPreset() {
+  const chars = collectCharData();
+  if (!chars.length || chars.every(c => !c.name && !c.desc)) {
+    alert('저장할 캐릭터 정보를 입력해주세요.');
+    return;
+  }
+  const label = prompt('프리셋 이름을 입력하세요:', chars.map(c => c.name).filter(Boolean).join(', '));
+  if (!label) return;
+  const presets = JSON.parse(localStorage.getItem(CHAR_PRESET_KEY) || '[]');
+  presets.push({ label, chars, id: Date.now() });
+  localStorage.setItem(CHAR_PRESET_KEY, JSON.stringify(presets));
+  renderCharPresets();
+}
+
+function loadCharPreset(id) {
+  const presets = JSON.parse(localStorage.getItem(CHAR_PRESET_KEY) || '[]');
+  const preset = presets.find(p => p.id === id);
+  if (!preset) return;
+  document.getElementById('char-slots').innerHTML = '';
+  charSlotCount = 0;
+  document.getElementById('btn-add-char').disabled = false;
+  preset.chars.forEach(c => {
+    addCharSlot();
+    const i = charSlotCount - 1;
+    document.getElementById(`char-name-${i}`).value = c.name || '';
+    document.getElementById(`char-desc-${i}`).value = c.desc || '';
+  });
+}
+
+function deleteCharPreset(id) {
+  let presets = JSON.parse(localStorage.getItem(CHAR_PRESET_KEY) || '[]');
+  presets = presets.filter(p => p.id !== id);
+  localStorage.setItem(CHAR_PRESET_KEY, JSON.stringify(presets));
+  renderCharPresets();
+}
+
+function renderCharPresets() {
+  renderPresetChips(CHAR_PRESET_KEY, 'char-presets', loadCharPreset, deleteCharPreset);
+}
+
+// ── 장면 설명 프리셋 ─────────────────────────────────────────────────────────
+const SCENE_PRESET_KEY = 'shots_scene_presets';
+
+function saveScenePreset() {
+  const text = document.getElementById('scene-input').value.trim();
+  if (!text) { alert('저장할 장면 설명을 입력해주세요.'); return; }
+  const label = prompt('프리셋 이름을 입력하세요:', text.slice(0, 20) + (text.length > 20 ? '…' : ''));
+  if (!label) return;
+  const presets = JSON.parse(localStorage.getItem(SCENE_PRESET_KEY) || '[]');
+  presets.push({ label, text, id: Date.now() });
+  localStorage.setItem(SCENE_PRESET_KEY, JSON.stringify(presets));
+  renderScenePresets();
+}
+
+function loadScenePreset(id) {
+  const presets = JSON.parse(localStorage.getItem(SCENE_PRESET_KEY) || '[]');
+  const preset = presets.find(p => p.id === id);
+  if (!preset) return;
+  document.getElementById('scene-input').value = preset.text;
+}
+
+function deleteScenePreset(id) {
+  let presets = JSON.parse(localStorage.getItem(SCENE_PRESET_KEY) || '[]');
+  presets = presets.filter(p => p.id !== id);
+  localStorage.setItem(SCENE_PRESET_KEY, JSON.stringify(presets));
+  renderScenePresets();
+}
+
+function renderScenePresets() {
+  renderPresetChips(SCENE_PRESET_KEY, 'scene-presets', loadScenePreset, deleteScenePreset);
+}
+
+// ── 프리셋 칩 공통 렌더러 ────────────────────────────────────────────────────
+function renderPresetChips(storageKey, containerId, onLoad, onDelete) {
+  const presets = JSON.parse(localStorage.getItem(storageKey) || '[]');
+  const container = document.getElementById(containerId);
+  container.innerHTML = '';
+  presets.forEach(p => {
+    const chip = document.createElement('div');
+    chip.className = 'preset-chip';
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = p.label;
+    labelSpan.onclick = () => onLoad(p.id);
+    const delSpan = document.createElement('span');
+    delSpan.className = 'preset-chip-del';
+    delSpan.textContent = '×';
+    delSpan.onclick = (e) => { e.stopPropagation(); onDelete(p.id); };
+    chip.appendChild(labelSpan);
+    chip.appendChild(delSpan);
+    container.appendChild(chip);
+  });
+}
+
+function collectCharData() {
+  const result = [];
+  for (let i = 0; i < charSlotCount; i++) {
+    const slot = document.getElementById(`char-slot-${i}`);
+    if (!slot) continue;
+    result.push({
+      name: document.getElementById(`char-name-${i}`)?.value.trim() || '',
+      desc: document.getElementById(`char-desc-${i}`)?.value.trim() || '',
+    });
+  }
+  return result;
+}
+
+// 기본 2개 슬롯
+addCharSlot();
+addCharSlot();
+renderCharPresets();
+renderScenePresets();
+
+// ── 이미지 업로드 미리보기 ────────────────────────────────────────────────────
+function previewUpload(input, previewId, hintId, areaId) {
+  const file = input.files[0];
   if (!file) return;
   const reader = new FileReader();
   reader.onload = (ev) => {
-    document.getElementById('upload-preview').src = ev.target.result;
-    document.getElementById('upload-preview').classList.add('visible');
-    document.getElementById('upload-hint').style.display = 'none';
-    document.getElementById('upload-area').classList.add('has-image');
+    const preview = document.getElementById(previewId);
+    preview.src = ev.target.result;
+    preview.classList.add('visible');
+    document.getElementById(hintId).style.display = 'none';
+    document.getElementById(areaId).classList.add('has-image');
+    if (areaId === 'upload-area-scene') sceneImageBase64 = ev.target.result.split(',')[1];
   };
   reader.readAsDataURL(file);
-});
+}
 
-// ── 상태 표시 ──────────────────────────────────────────────────────────────────
+// ── 상태 표시 ─────────────────────────────────────────────────────────────────
 function setStatus(type, msg) {
   const bar = document.getElementById('status-bar');
   const text = document.getElementById('status-text');
@@ -475,34 +620,38 @@ function setStatus(type, msg) {
   spinner.style.display = type === 'loading' ? 'block' : 'none';
 }
 
-// ── 앵글 생성 ──────────────────────────────────────────────────────────────────
+// ── 캐릭터 설명 조합 ─────────────────────────────────────────────────────────
+function collectCharDesc() {
+  return collectCharData()
+    .filter(c => c.name || c.desc)
+    .map(c => `${c.name || '(이름 없음)'}: ${c.desc || '설명 없음'}`)
+    .join(' / ');
+}
+
+// ── 앵글 생성 ─────────────────────────────────────────────────────────────────
 async function generateAngles() {
   const sceneInput = document.getElementById('scene-input').value.trim();
-  const imageFile = document.getElementById('image-input').files[0];
-  if (!sceneInput && !imageFile) {
+  const charDesc   = collectCharDesc();
+  const hasImage   = !!document.getElementById('image-input').files[0];
+  if (!sceneInput && !charDesc && !hasImage) {
     setStatus('error', '이미지를 올리거나 장면 설명을 입력해주세요.');
     return;
   }
 
   const btn = document.getElementById('generate-btn');
+  const regenBtn = document.getElementById('regen-btn');
   btn.disabled = true;
-  const loadingMsg = imageFile
-    ? 'Claude가 이미지를 분석하고 9개 앵글을 구성 중입니다...'
-    : 'Claude가 9개 앵글을 분석 중입니다...';
-  setStatus('loading', loadingMsg);
+  if (regenBtn) regenBtn.disabled = true;
+  setStatus('loading', hasImage ? 'Gemini가 이미지를 분석하고 앵글을 구성 중...' : 'Gemini가 앵글을 구성 중...');
   document.getElementById('empty-state').style.display = 'none';
   document.getElementById('cards-grid').style.display = 'none';
   document.getElementById('toolbar').classList.remove('visible');
 
   try {
-    const fd = new FormData();
-    fd.append('sceneDescription', sceneInput);
-    if (imageFile) fd.append('image', imageFile);
-
+    const fd = buildFormData(sceneInput, charDesc, 9, []);
     const res = await fetch('/api/generate-angles', { method: 'POST', body: fd });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'API 오류');
-
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data.error || `서버 오류 (${res.status})`);
     currentAngles = data.angles;
     renderCards(data.angles);
     setStatus('', '');
@@ -511,111 +660,146 @@ async function generateAngles() {
     document.getElementById('empty-state').style.display = 'flex';
   } finally {
     btn.disabled = false;
+    if (regenBtn) regenBtn.disabled = false;
   }
 }
 
-// Enter key on textarea
-document.getElementById('scene-input').addEventListener('keydown', (e) => {
+document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) generateAngles();
 });
 
-// ── 카드 렌더링 ────────────────────────────────────────────────────────────────
+// ── FormData 빌더 ─────────────────────────────────────────────────────────────
+function buildFormData(sceneInput, charDesc, count, existingAngles) {
+  const fd = new FormData();
+  fd.append('sceneDescription', sceneInput);
+  fd.append('characterDesc', charDesc);
+  fd.append('count', String(count));
+  if (existingAngles.length) fd.append('existingAngles', JSON.stringify(existingAngles));
+  const imageFile = document.getElementById('image-input').files[0];
+  if (imageFile) fd.append('image', imageFile);
+  return fd;
+}
+
+// ── 프리뷰 시트 생성 ─────────────────────────────────────────────────────────
+async function generatePreviewSheet() {
+  if (!currentAngles.length) return;
+
+  const btn = document.getElementById('gen-sheet-btn');
+  btn.disabled = true;
+
+  // 10번째 카드(프리뷰 시트 카드)를 스피너 상태로
+  const sheetContent = document.getElementById('sheet-card-content');
+  if (sheetContent) {
+    sheetContent.innerHTML = '<div class="card-sheet-spinner"></div>';
+  }
+
+  setStatus('loading', '프리뷰 시트 생성 중... (약 20-30초 소요)');
+
+  try {
+    const res = await fetch('/api/generate-preview-sheet', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ angles: currentAngles.slice(0, 9) }),
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data.error || `서버 오류 (${res.status})`);
+
+    const img = document.createElement('img');
+    img.className = 'card-sheet-img';
+    img.src = data.imageUrl;
+    img.alt = '스토리보드 프리뷰 시트';
+    if (sheetContent) {
+      sheetContent.innerHTML = '';
+      sheetContent.appendChild(img);
+    }
+    setStatus('', '');
+    // 프리뷰 시트 카드로 스크롤
+    document.getElementById('card-preview-sheet')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } catch (err) {
+    if (sheetContent) {
+      sheetContent.innerHTML = `
+        <div class="card-sheet-placeholder">
+          <span style="color:var(--danger)">오류: ${escHtml(err.message)}</span>
+          <button class="btn-secondary" onclick="generatePreviewSheet()" style="margin-top:8px">다시 시도</button>
+        </div>`;
+    }
+    setStatus('error', '오류: ' + err.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── 카드 렌더링 ───────────────────────────────────────────────────────────────
+function makeCardHTML(angle, i) {
+  return `
+    <div class="card-body">
+      <div class="card-header">
+        <span class="card-num">${String(i + 1).padStart(2, '0')}</span>
+        <span class="card-angle-name">${escHtml(angle.angleName)}</span>
+      </div>
+      <div class="card-description">${escHtml(angle.koreanDescription)}</div>
+      <div class="card-prompt-wrap">
+        <div class="card-prompt-header">
+          <div class="card-prompt-label">Image Prompt</div>
+          <button class="btn-copy" onclick="copyPrompt(${i}, this)">복사</button>
+        </div>
+        <div class="card-prompt" id="prompt-text-${i}">${escHtml(angle.imagePrompt)}</div>
+      </div>
+    </div>`;
+}
+
 function renderCards(angles) {
   const grid = document.getElementById('cards-grid');
   grid.innerHTML = '';
+
+  // 1~9번 앵글 카드
   angles.forEach((angle, i) => {
     const card = document.createElement('div');
-    card.className = 'card';
-    card.id = `card-${i}`;
-    card.innerHTML = `
-      <div class="card-image-area" id="img-area-${i}">
-        <div class="card-placeholder" id="placeholder-${i}">
-          <div class="card-placeholder-inner">
-            <div class="card-index">${String(i + 1).padStart(2, '0')}</div>
-            <div class="card-angle-name-small">${escHtml(angle.angleName)}</div>
-          </div>
-        </div>
-      </div>
-      <div class="card-body">
-        <div class="card-header">
-          <span class="card-num">${String(i + 1).padStart(2, '0')}</span>
-          <span class="card-angle-name">${escHtml(angle.angleName)}</span>
-        </div>
-        <div class="card-description">${escHtml(angle.koreanDescription)}</div>
-        <div class="card-prompt-wrap">
-          <div class="card-prompt-label">Image Prompt</div>
-          <div class="card-prompt">${escHtml(angle.imagePrompt)}</div>
-        </div>
-      </div>
-      <div class="card-footer">
-        <button class="btn-gen-image" id="img-btn-${i}" onclick="generateImage(${i})">이미지 생성</button>
-      </div>
-    `;
+    card.className = 'card'; card.id = `card-${i}`;
+    card.innerHTML = makeCardHTML(angle, i);
     grid.appendChild(card);
   });
 
+  // 10번째: 프리뷰 시트 카드
+  const sheetCard = document.createElement('div');
+  sheetCard.className = 'card card-sheet';
+  sheetCard.id = 'card-preview-sheet';
+  sheetCard.innerHTML = `
+    <div class="card-sheet-body">
+      <div class="card-sheet-header">
+        <div class="card-sheet-title">
+          <span class="card-num">10</span>
+          <span class="card-angle-name">Preview Sheet</span>
+        </div>
+        <button class="btn-copy" onclick="generatePreviewSheet()">생성</button>
+      </div>
+      <div id="sheet-card-content">
+        <div class="card-sheet-placeholder">
+          프리뷰 시트를 생성하려면<br>위의 "생성" 버튼이나<br>툴바의 "프리뷰 시트"를 누르세요
+        </div>
+      </div>
+    </div>`;
+  grid.appendChild(sheetCard);
+
   grid.style.display = 'grid';
   document.getElementById('toolbar').classList.add('visible');
-  document.getElementById('toolbar-label').textContent = `${angles.length}개 앵글 카드 생성됨`;
+  document.getElementById('toolbar-label').textContent = `${angles.length}개 앵글 카드`;
 }
 
 function escHtml(str) {
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
-
-// ── 이미지 생성 (단일) ──────────────────────────────────────────────────────────
-async function generateImage(index) {
-  const angle = currentAngles[index];
-  if (!angle) return;
-
-  const btn = document.getElementById(`img-btn-${index}`);
-  const placeholder = document.getElementById(`placeholder-${index}`);
-  btn.disabled = true;
-  btn.classList.add('generating');
-  btn.textContent = '생성 중...';
-
-  // 로딩 스피너
-  placeholder.innerHTML = `<div class="card-placeholder-inner"><div class="card-spinner"></div></div>`;
-
-  try {
-    const res = await fetch('/api/generate-image', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: angle.imagePrompt }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || '이미지 생성 실패');
-
-    const imgArea = document.getElementById(`img-area-${index}`);
-    imgArea.innerHTML = `<img src="${data.imageUrl}" alt="${escHtml(angle.angleName)}" loading="lazy">`;
-    btn.textContent = '재생성';
-    btn.classList.remove('generating');
-    btn.classList.add('done');
-    btn.disabled = false;
-  } catch (err) {
-    placeholder.innerHTML = `
-      <div class="card-placeholder-inner">
-        <div class="card-index" style="color:#e05555">ERR</div>
-        <div class="card-angle-name-small" style="color:#e05555">${escHtml(err.message.slice(0, 40))}</div>
-      </div>`;
-    btn.textContent = '재시도';
-    btn.classList.remove('generating');
-    btn.disabled = false;
-  }
+async function safeJson(res) {
+  const text = await res.text();
+  try { return JSON.parse(text); } catch { return { error: text.slice(0, 200) || `HTTP ${res.status}` }; }
 }
-
-// ── 전체 이미지 생성 ────────────────────────────────────────────────────────────
-async function generateAllImages() {
-  const btn = document.getElementById('gen-all-btn');
-  btn.disabled = true;
-  btn.textContent = '생성 중...';
-  setStatus('loading', `전체 이미지 생성 중 (${currentAngles.length}개)...`);
-
-  await Promise.all(currentAngles.map((_, i) => generateImage(i)));
-
-  btn.disabled = false;
-  btn.textContent = '전체 재생성';
-  setStatus('', '');
+function copyPrompt(index, btn) {
+  const text = currentAngles[index]?.imagePrompt;
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = '완료'; btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = '복사'; btn.classList.remove('copied'); }, 2000);
+  });
 }
 </script>
 </body>
