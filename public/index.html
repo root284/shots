@@ -701,8 +701,30 @@ async function generateCardImage(index) {
       body: JSON.stringify({ prompt: angle.imagePrompt }),
       signal: controller.signal,
     });
-    const data = await safeJson(res);
-    if (!res.ok) throw new Error(data.error || `서버 오류 (${res.status})`);
+    if (!res.ok) {
+      const data = await safeJson(res);
+      throw new Error(data.error || `서버 오류 (${res.status})`);
+    }
+
+    // SSE 스트림 읽기
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let data = null;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          data = JSON.parse(line.slice(6));
+        }
+      }
+    }
+    if (!data) throw new Error('응답 없음');
+    if (data.error) throw new Error(data.error);
     if (!data.imageData) throw new Error('이미지 데이터 없음');
 
     imgArea.innerHTML = `<img src="${data.imageData}" alt="generated" loading="lazy">`;

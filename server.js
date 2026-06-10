@@ -199,7 +199,7 @@ Return ONLY the JSON array, no markdown, no explanation.`;
   res.end(JSON.stringify({ angles }));
 }
 
-// ── /api/generate-image  (OpenAI gpt-image-1) ────────────────────────────────
+// ── /api/generate-image  (OpenAI gpt-image-1, SSE keepalive) ─────────────────
 async function generateImage(req, res) {
   if (!OPENAI_KEY) {
     res.writeHead(500, { "Content-Type": "application/json" });
@@ -217,43 +217,49 @@ async function generateImage(req, res) {
   const fullPrompt = `black and white storyboard sketch, rough pencil lines, cinematic composition, professional storyboard art, no color — ${prompt}`;
   console.log("OpenAI image prompt (first 150):", fullPrompt.slice(0, 150));
 
-  const openaiRes = await fetch("https://api.openai.com/v1/images/generations", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${OPENAI_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "gpt-image-1",
-      prompt: fullPrompt,
-      n: 1,
-      size: "1536x1024",
-      quality: "low",
-    }),
-    signal: AbortSignal.timeout(120_000),
+  // SSE로 응답 — Railway 연결 끊김 방지용 keepalive 전송
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    "X-Accel-Buffering": "no",
   });
 
-  const openaiText = await openaiRes.text();
-  console.log(`OpenAI response: status=${openaiRes.status}, body=${openaiText.slice(0, 200)}`);
+  // 10초마다 keepalive 전송
+  const keepalive = setInterval(() => {
+    try { res.write(": keepalive\n\n"); } catch {}
+  }, 10_000);
 
-  if (!openaiRes.ok) {
-    let errMsg = `OpenAI ${openaiRes.status}`;
-    try { errMsg = JSON.parse(openaiText).error?.message || errMsg; } catch {}
-    res.writeHead(502, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: errMsg }));
-    return;
+  try {
+    const openaiRes = await fetch("https://api.openai.com/v1/images/generations", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "gpt-image-1", prompt: fullPrompt, n: 1, size: "1536x1024", quality: "low" }),
+      signal: AbortSignal.timeout(120_000),
+    });
+
+    const openaiText = await openaiRes.text();
+    console.log(`OpenAI response: status=${openaiRes.status}, body=${openaiText.slice(0, 200)}`);
+
+    if (!openaiRes.ok) {
+      let errMsg = `OpenAI ${openaiRes.status}`;
+      try { errMsg = JSON.parse(openaiText).error?.message || errMsg; } catch {}
+      res.end(`data: ${JSON.stringify({ error: errMsg })}\n\n`);
+      return;
+    }
+
+    const b64 = JSON.parse(openaiText).data?.[0]?.b64_json;
+    if (!b64) {
+      res.end(`data: ${JSON.stringify({ error: "No image returned from OpenAI" })}\n\n`);
+      return;
+    }
+
+    res.end(`data: ${JSON.stringify({ imageData: `data:image/png;base64,${b64}` })}\n\n`);
+  } catch (e) {
+    console.error("OpenAI error:", e.message);
+    res.end(`data: ${JSON.stringify({ error: e.message })}\n\n`);
+  } finally {
+    clearInterval(keepalive);
   }
-
-  const openaiData = JSON.parse(openaiText);
-  const b64 = openaiData.data?.[0]?.b64_json;
-  if (!b64) {
-    res.writeHead(502, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "No image returned from OpenAI" }));
-    return;
-  }
-
-  res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ imageData: `data:image/png;base64,${b64}` }));
 }
 
 // ── 정적 파일 서빙 ────────────────────────────────────────────────────────────
