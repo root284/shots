@@ -199,8 +199,22 @@ Return ONLY the JSON array, no markdown, no explanation.`;
   res.end(JSON.stringify({ angles }));
 }
 
-// ── /api/generate-preview-sheet ─────────────────────────────────────────────
-async function generatePreviewSheet(req, res) {
+// ── 공통: 시트 프롬프트 생성 ────────────────────────────────────────────────
+function buildSheetPrompt(angles) {
+  const angleKeywords = angles.slice(0, 9).map(a =>
+    a.angleName.toLowerCase().replace(/[^a-z\s]/g, '').trim()
+  ).join(', ');
+  const sceneCore = (angles[0]?.imagePrompt || '').split(',').slice(1, 3).join(',').slice(0, 80).trim();
+  return (
+    `storyboard sheet, 3x3 grid of 9 panels, black border lines between panels, panel numbers 1-9, ` +
+    `rough pencil sketch style, black and white, no color, loose hand-drawn lines, ` +
+    `each panel shows a different camera angle: ${angleKeywords}. ` +
+    (sceneCore ? `Scene: ${sceneCore}.` : '')
+  );
+}
+
+// ── /api/submit-preview-sheet  (큐에 제출 → request_id 즉시 반환) ───────────
+async function submitPreviewSheet(req, res) {
   if (!FAL_KEY) {
     res.writeHead(500, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "FAL_KEY not configured on server" }));
@@ -208,12 +222,6 @@ async function generatePreviewSheet(req, res) {
   }
 
   const raw = await readBody(req);
-  if (!raw.length) {
-    res.writeHead(400, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "empty request body" }));
-    return;
-  }
-
   const { angles } = JSON.parse(raw.toString());
   if (!angles?.length) {
     res.writeHead(400, { "Content-Type": "application/json" });
@@ -221,85 +229,88 @@ async function generatePreviewSheet(req, res) {
     return;
   }
 
-  // 9개 앵글을 3×3 그리드 스토리보드 시트 프롬프트로 조합
-  // flux/schnell은 복잡한 지시를 따르지 못하므로 핵심 장면+구도 키워드만 압축
-  const angleKeywords = angles.slice(0, 9).map(a =>
-    a.angleName.toLowerCase().replace(/[^a-z\s]/g, '').trim()
-  ).join(', ');
+  const sheetPrompt = buildSheetPrompt(angles);
+  console.log("Sheet prompt (first 200):", sheetPrompt.slice(0, 200));
 
-  // 첫 번째 앵글의 imagePrompt에서 장면 핵심(인물/배경) 추출 (앞 80자)
-  const sceneCore = (angles[0]?.imagePrompt || '').split(',').slice(1, 3).join(',').slice(0, 80).trim();
-
-  const sheetPrompt =
-    `storyboard sheet, 3x3 grid of 9 panels, black border lines between panels, panel numbers 1-9, ` +
-    `rough pencil sketch style, black and white, no color, loose hand-drawn lines, ` +
-    `each panel shows a different camera angle: ${angleKeywords}. ` +
-    (sceneCore ? `Scene: ${sceneCore}.` : '');
-
-  console.log("Sheet prompt length:", sheetPrompt.length, "| first 300:", sheetPrompt.slice(0, 300));
-
-  // Queue API 사용: Railway 타임아웃 우회 + upstream error 방지
   const submitRes = await fetch("https://queue.fal.run/fal-ai/flux/schnell", {
     method: "POST",
-    headers: {
-      "Authorization": `Key ${FAL_KEY}`,
-      "Content-Type": "application/json",
-    },
+    headers: { "Authorization": `Key ${FAL_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       prompt: sheetPrompt,
       image_size: "square",
       num_inference_steps: 4,
       num_images: 1,
     }),
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(20_000),
   });
 
   const submitText = await submitRes.text();
-  console.log(`fal.ai queue submit: status=${submitRes.status}, body=${submitText.slice(0, 300)}`);
+  console.log(`fal.ai submit: status=${submitRes.status}, body=${submitText.slice(0, 200)}`);
+
   if (!submitRes.ok) {
     res.writeHead(502, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: `fal.ai submit error ${submitRes.status}: ${submitText.slice(0, 200)}` }));
+    res.end(JSON.stringify({ error: `fal.ai submit ${submitRes.status}: ${submitText.slice(0, 200)}` }));
     return;
   }
 
   const { request_id } = JSON.parse(submitText);
   if (!request_id) {
     res.writeHead(502, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "fal.ai: no request_id returned" }));
-    return;
-  }
-
-  // 최대 90초 폴링 (3초 간격 × 30회)
-  let imageUrl = null;
-  for (let attempt = 0; attempt < 30; attempt++) {
-    await new Promise(r => setTimeout(r, 3000));
-    const pollRes = await fetch(
-      `https://queue.fal.run/fal-ai/flux/schnell/requests/${request_id}`,
-      { headers: { "Authorization": `Key ${FAL_KEY}` }, signal: AbortSignal.timeout(15_000) }
-    );
-    const pollText = await pollRes.text();
-    console.log(`fal.ai poll [${attempt+1}]: status=${pollRes.status}, body=${pollText.slice(0, 200)}`);
-    if (!pollRes.ok) continue;
-    const pollData = JSON.parse(pollText);
-    if (pollData.images?.[0]?.url) {
-      imageUrl = pollData.images[0].url;
-      break;
-    }
-    if (pollData.status === 'FAILED') {
-      res.writeHead(502, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: `fal.ai job failed: ${pollData.error || 'unknown'}` }));
-      return;
-    }
-  }
-
-  if (!imageUrl) {
-    res.writeHead(502, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "fal.ai: timed out waiting for image" }));
+    res.end(JSON.stringify({ error: "fal.ai: no request_id" }));
     return;
   }
 
   res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ imageUrl }));
+  res.end(JSON.stringify({ request_id }));
+}
+
+// ── /api/poll-preview-sheet?id=...  (클라이언트가 주기적으로 호출) ────────────
+async function pollPreviewSheet(req, res) {
+  if (!FAL_KEY) {
+    res.writeHead(500, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "FAL_KEY not configured" }));
+    return;
+  }
+
+  const id = new URL(req.url, "http://x").searchParams.get("id");
+  if (!id) {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "id required" }));
+    return;
+  }
+
+  const pollRes = await fetch(
+    `https://queue.fal.run/fal-ai/flux/schnell/requests/${id}`,
+    { headers: { "Authorization": `Key ${FAL_KEY}` }, signal: AbortSignal.timeout(15_000) }
+  );
+  const pollText = await pollRes.text();
+  console.log(`fal.ai poll id=${id.slice(0,8)}: status=${pollRes.status}, body=${pollText.slice(0,200)}`);
+
+  if (!pollRes.ok) {
+    res.writeHead(pollRes.status, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: `poll error ${pollRes.status}` }));
+    return;
+  }
+
+  const pollData = JSON.parse(pollText);
+
+  // 완료: 이미지 URL 반환
+  if (pollData.images?.[0]?.url) {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: "done", imageUrl: pollData.images[0].url }));
+    return;
+  }
+
+  // 실패
+  if (pollData.status === "FAILED") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: "failed", error: pollData.error || "unknown" }));
+    return;
+  }
+
+  // 아직 처리 중
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ status: "pending", queuePosition: pollData.queue_position }));
 }
 
 // ── 정적 파일 서빙 ────────────────────────────────────────────────────────────
@@ -324,8 +335,10 @@ const server = createServer(async (req, res) => {
   try {
     if (req.url === "/api/generate-angles" && req.method === "POST") {
       await generateAngles(req, res);
-    } else if (req.url === "/api/generate-preview-sheet" && req.method === "POST") {
-      await generatePreviewSheet(req, res);
+    } else if (req.url === "/api/submit-preview-sheet" && req.method === "POST") {
+      await submitPreviewSheet(req, res);
+    } else if (req.url.startsWith("/api/poll-preview-sheet") && req.method === "GET") {
+      await pollPreviewSheet(req, res);
     } else {
       await serveStatic(req, res);
     }

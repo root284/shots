@@ -680,41 +680,51 @@ function buildFormData(sceneInput, charDesc, count, existingAngles) {
   return fd;
 }
 
-// ── 프리뷰 시트 생성 ─────────────────────────────────────────────────────────
+// ── 프리뷰 시트 생성 (submit → client-side polling) ─────────────────────────
 async function generatePreviewSheet() {
   if (!currentAngles.length) return;
 
   const btn = document.getElementById('gen-sheet-btn');
   btn.disabled = true;
 
-  // 10번째 카드(프리뷰 시트 카드)를 스피너 상태로
   const sheetContent = document.getElementById('sheet-card-content');
-  if (sheetContent) {
-    sheetContent.innerHTML = '<div class="card-sheet-spinner"></div>';
-  }
-
-  setStatus('loading', '프리뷰 시트 생성 중... (약 20-30초 소요)');
+  if (sheetContent) sheetContent.innerHTML = '<div class="card-sheet-spinner"></div>';
+  setStatus('loading', '프리뷰 시트 생성 중...');
 
   try {
-    const res = await fetch('/api/generate-preview-sheet', {
+    // 1단계: 큐에 제출
+    const submitRes = await fetch('/api/submit-preview-sheet', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ angles: currentAngles.slice(0, 9) }),
     });
-    const data = await safeJson(res);
-    if (!res.ok) throw new Error(data.error || `서버 오류 (${res.status})`);
+    const submitData = await safeJson(submitRes);
+    if (!submitRes.ok) throw new Error(submitData.error || `서버 오류 (${submitRes.status})`);
+    const { request_id } = submitData;
+    if (!request_id) throw new Error('request_id를 받지 못했습니다');
+
+    // 2단계: 완료될 때까지 폴링 (3초 간격, 최대 40회 = 2분)
+    let imageUrl = null;
+    for (let i = 0; i < 40; i++) {
+      await new Promise(r => setTimeout(r, 3000));
+      const pollRes = await fetch(`/api/poll-preview-sheet?id=${encodeURIComponent(request_id)}`);
+      const pollData = await safeJson(pollRes);
+      if (pollData.status === 'done') { imageUrl = pollData.imageUrl; break; }
+      if (pollData.status === 'failed') throw new Error(`생성 실패: ${pollData.error}`);
+      // pending — 큐 위치 표시
+      const pos = pollData.queuePosition != null ? ` (큐 ${pollData.queuePosition}번째)` : '';
+      setStatus('loading', `프리뷰 시트 생성 중...${pos}`);
+    }
+    if (!imageUrl) throw new Error('시간 초과 (2분)');
 
     const img = document.createElement('img');
     img.className = 'card-sheet-img';
-    img.src = data.imageUrl;
+    img.src = imageUrl;
     img.alt = '스토리보드 프리뷰 시트';
-    if (sheetContent) {
-      sheetContent.innerHTML = '';
-      sheetContent.appendChild(img);
-    }
+    if (sheetContent) { sheetContent.innerHTML = ''; sheetContent.appendChild(img); }
     setStatus('', '');
-    // 프리뷰 시트 카드로 스크롤
     document.getElementById('card-preview-sheet')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
   } catch (err) {
     if (sheetContent) {
       sheetContent.innerHTML = `
