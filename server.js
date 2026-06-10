@@ -22,7 +22,14 @@ const MIME = {
 
 async function readBody(req) {
   const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("body read timeout")), 25_000);
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => { clearTimeout(timeout); resolve(); });
+    req.on("error", (e) => { clearTimeout(timeout); reject(e); });
+    req.on("aborted", () => { clearTimeout(timeout); reject(new Error("request aborted")); });
+    req.on("close", () => { clearTimeout(timeout); resolve(); });
+  });
   return Buffer.concat(chunks);
 }
 
@@ -205,6 +212,7 @@ let jobCounter = 0;
 
 // ── /api/generate-image  (즉시 jobId 반환 → 백그라운드에서 OpenAI 호출) ────────
 async function generateImage(req, res) {
+  console.log("generateImage called, reading body...");
   if (!OPENAI_KEY) {
     res.writeHead(500, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "OPENAI_API_KEY not configured on server" }));
@@ -345,7 +353,7 @@ const server = createServer(async (req, res) => {
       await serveStatic(req, res);
     }
   } catch (e) {
-    console.error("Handler error:", e.message);
+    console.error(`Handler error [${req.method} ${req.url}]:`, e.message);
     if (!res.headersSent) {
       res.writeHead(502, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: e.message }));
