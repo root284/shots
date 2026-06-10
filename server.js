@@ -269,30 +269,37 @@ async function generateImage(req, res) {
       let openaiRes;
 
       if (imageBase64) {
+        // 레퍼런스 이미지 있을 때 → /v1/images/edits (multipart/form-data)
         const imgBuffer = Buffer.from(imageBase64, "base64");
         const boundary = `----FormBoundary${Date.now()}`;
         const mime = imageMime || "image/jpeg";
         const ext = mime.split("/")[1] || "jpg";
-        const parts = [
-          `--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\ngpt-image-1`,
-          `--${boundary}\r\nContent-Disposition: form-data; name="prompt"\r\n\r\n${fullPrompt}`,
-          `--${boundary}\r\nContent-Disposition: form-data; name="n"\r\n\r\n1`,
-          `--${boundary}\r\nContent-Disposition: form-data; name="size"\r\n\r\n1536x1024`,
-          `--${boundary}\r\nContent-Disposition: form-data; name="quality"\r\n\r\nmedium`,
-        ];
-        const textPart = Buffer.from(parts.join("\r\n") + "\r\n");
-        const imgPart = Buffer.from(
-          `--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="ref.${ext}"\r\nContent-Type: ${mime}\r\n\r\n`
-        );
-        const closing = Buffer.from(`\r\n--${boundary}--\r\n`);
-        const formBody = Buffer.concat([textPart, imgPart, imgBuffer, closing]);
-        openaiRes = await fetch("https://api.openai.com/v1/images/generations", {
+
+        const field = (name, value) =>
+          `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`;
+        const fileField = Buffer.concat([
+          Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="image[]"; filename="ref.${ext}"\r\nContent-Type: ${mime}\r\n\r\n`),
+          imgBuffer,
+          Buffer.from("\r\n"),
+        ]);
+        const formBody = Buffer.concat([
+          Buffer.from(field("model", "gpt-image-1")),
+          Buffer.from(field("prompt", fullPrompt)),
+          Buffer.from(field("n", "1")),
+          Buffer.from(field("size", "1536x1024")),
+          Buffer.from(field("quality", "medium")),
+          fileField,
+          Buffer.from(`--${boundary}--\r\n`),
+        ]);
+
+        openaiRes = await fetch("https://api.openai.com/v1/images/edits", {
           method: "POST",
           headers: { "Authorization": `Bearer ${OPENAI_KEY}`, "Content-Type": `multipart/form-data; boundary=${boundary}` },
           body: formBody,
           signal: AbortSignal.timeout(120_000),
         });
       } else {
+        // 레퍼런스 없을 때 → /v1/images/generations (JSON)
         openaiRes = await fetch("https://api.openai.com/v1/images/generations", {
           method: "POST",
           headers: { "Authorization": `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
