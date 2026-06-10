@@ -260,15 +260,42 @@ async function generateImage(req, res) {
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ jobId }));
 
-  const stylePrefix = `Black and white storyboard sketch, rough pencil lines, cinematic composition, professional storyboard art. `;
-  const fullPrompt = imageBase64
-    ? `${stylePrefix}IMPORTANT: Use the attached image ONLY as a reference for character appearance — do NOT copy its composition, camera angle, or layout. Draw a completely new scene: ${prompt}`
-    : `${stylePrefix}${prompt}`;
-  console.log(`[${jobId}] OpenAI prompt (first 150):`, fullPrompt.slice(0, 150));
+  console.log(`[${jobId}] Raw prompt (first 100):`, prompt.slice(0, 100));
   console.log(`[${jobId}] Reference image:`, imageBase64 ? "provided" : "none");
 
   (async () => {
     try {
+      // ── GPT-4o로 이미지 프롬프트 강화 ──────────────────────────────────────
+      const refInstruction = imageBase64
+        ? "A reference image is attached for character appearance and art style. Do NOT copy its composition or camera angle."
+        : "";
+      const enhanceRes = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "gpt-4o",
+          max_tokens: 400,
+          messages: [{
+            role: "system",
+            content: `You are an expert at writing prompts for storyboard image generation.
+Rewrite the given scene description into a detailed, vivid image generation prompt.
+STRICT RULES:
+- Output must be black and white storyboard sketch style: rough pencil lines, cinematic composition, professional storyboard art
+- Preserve the exact camera angle and framing from the input (e.g. dutch tilt, close-up, wide shot)
+- Describe character positions, expressions, and environment in detail
+- ${refInstruction}
+- Output ONLY the final prompt text, no explanation, no quotes.`,
+          }, {
+            role: "user",
+            content: prompt,
+          }],
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      const enhanceJson = await enhanceRes.json();
+      const enhancedPrompt = enhanceJson.choices?.[0]?.message?.content?.trim() || prompt;
+      console.log(`[${jobId}] Enhanced prompt (first 200):`, enhancedPrompt.slice(0, 200));
+
       let openaiRes;
 
       if (imageBase64) {
@@ -288,7 +315,7 @@ async function generateImage(req, res) {
         ]);
         const formBody = Buffer.concat([
           Buffer.from(field("model", "gpt-image-1")),
-          Buffer.from(field("prompt", fullPrompt)),
+          Buffer.from(field("prompt", enhancedPrompt)),
           Buffer.from(field("n", "1")),
           Buffer.from(field("size", "1536x1024")),
           Buffer.from(field("quality", "high")),
@@ -307,7 +334,7 @@ async function generateImage(req, res) {
         openaiRes = await fetch("https://api.openai.com/v1/images/generations", {
           method: "POST",
           headers: { "Authorization": `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ model: "gpt-image-1", prompt: fullPrompt, n: 1, size: "1536x1024", quality: "medium" }),
+          body: JSON.stringify({ model: "gpt-image-1", prompt: enhancedPrompt, n: 1, size: "1536x1024", quality: "high" }),
           signal: AbortSignal.timeout(120_000),
         });
       }
