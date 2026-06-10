@@ -265,94 +265,42 @@ async function generateImage(req, res) {
 
   (async () => {
     try {
-      // ── GPT-4o로 이미지 프롬프트 강화 ──────────────────────────────────────
-      const refInstruction = imageBase64
-        ? "A reference image is attached for character appearance and art style. Do NOT copy its composition or camera angle."
-        : "";
-      const enhanceRes = await fetch("https://api.openai.com/v1/chat/completions", {
+      // ── DALL-E 3: JSON만 지원, 응답은 url ──────────────────────────────────
+      // DALL-E 3 자체가 내부적으로 프롬프트를 강화하므로 GPT-4o 전처리 생략
+      console.log(`[${jobId}] Calling DALL-E 3...`);
+      const openaiRes = await fetch("https://api.openai.com/v1/images/generations", {
         method: "POST",
         headers: { "Authorization": `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "gpt-4o",
-          max_tokens: 400,
-          messages: [{
-            role: "system",
-            content: `You are an expert at writing prompts for storyboard image generation.
-Rewrite the given scene description into a detailed, vivid image generation prompt.
-STRICT RULES:
-- Output must be black and white storyboard sketch style: rough pencil lines, cinematic composition, professional storyboard art
-- Preserve the exact camera angle and framing from the input (e.g. dutch tilt, close-up, wide shot)
-- Describe character positions, expressions, and environment in detail
-- ${refInstruction}
-- Output ONLY the final prompt text, no explanation, no quotes.`,
-          }, {
-            role: "user",
-            content: prompt,
-          }],
+          model: "dall-e-3",
+          prompt,
+          n: 1,
+          size: "1792x1024",
+          quality: "hd",
+          style: "natural",
         }),
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(120_000),
       });
-      const enhanceJson = await enhanceRes.json();
-      const enhancedPrompt = enhanceJson.choices?.[0]?.message?.content?.trim() || prompt;
-      console.log(`[${jobId}] Enhanced prompt (first 200):`, enhancedPrompt.slice(0, 200));
-
-      let openaiRes;
-
-      if (imageBase64) {
-        // 레퍼런스 이미지 있을 때 → /v1/images/edits
-        // 구도 복사 방지: 프롬프트에 명시적으로 "스타일·캐릭터만 참고, 구도는 무시" 지시
-        const imgBuffer = Buffer.from(imageBase64, "base64");
-        const boundary = `----FormBoundary${Date.now()}`;
-        const mime = imageMime || "image/jpeg";
-        const ext = mime.split("/")[1] || "jpg";
-
-        const field = (name, value) =>
-          `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`;
-        const fileField = Buffer.concat([
-          Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="image[]"; filename="ref.${ext}"\r\nContent-Type: ${mime}\r\n\r\n`),
-          imgBuffer,
-          Buffer.from("\r\n"),
-        ]);
-        const formBody = Buffer.concat([
-          Buffer.from(field("model", "gpt-image-1")),
-          Buffer.from(field("prompt", enhancedPrompt)),
-          Buffer.from(field("n", "1")),
-          Buffer.from(field("size", "1536x1024")),
-          Buffer.from(field("quality", "high")),
-          fileField,
-          Buffer.from(`--${boundary}--\r\n`),
-        ]);
-
-        openaiRes = await fetch("https://api.openai.com/v1/images/edits", {
-          method: "POST",
-          headers: { "Authorization": `Bearer ${OPENAI_KEY}`, "Content-Type": `multipart/form-data; boundary=${boundary}` },
-          body: formBody,
-          signal: AbortSignal.timeout(120_000),
-        });
-      } else {
-        // 레퍼런스 없을 때 → /v1/images/generations (JSON)
-        openaiRes = await fetch("https://api.openai.com/v1/images/generations", {
-          method: "POST",
-          headers: { "Authorization": `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ model: "gpt-image-1", prompt: enhancedPrompt, n: 1, size: "1536x1024", quality: "high" }),
-          signal: AbortSignal.timeout(120_000),
-        });
-      }
 
       const openaiText = await openaiRes.text();
-      console.log(`[${jobId}] OpenAI response: status=${openaiRes.status}, body=${openaiText.slice(0, 200)}`);
+      console.log(`[${jobId}] DALL-E 3 response: status=${openaiRes.status}, body=${openaiText.slice(0, 300)}`);
 
       if (!openaiRes.ok) {
-        let errMsg = `OpenAI ${openaiRes.status}`;
+        let errMsg = `DALL-E 3 오류 (${openaiRes.status})`;
         try { errMsg = JSON.parse(openaiText).error?.message || errMsg; } catch {}
         jobs.set(jobId, { status: "error", error: errMsg });
         return;
       }
 
-      const b64 = JSON.parse(openaiText).data?.[0]?.b64_json;
-      if (!b64) { jobs.set(jobId, { status: "error", error: "No image returned from OpenAI" }); return; }
+      const imageUrl = JSON.parse(openaiText).data?.[0]?.url;
+      if (!imageUrl) { jobs.set(jobId, { status: "error", error: "No image returned from DALL-E 3" }); return; }
 
-      jobs.set(jobId, { status: "done", result: { imageData: `data:image/png;base64,${b64}` } });
+      // url → base64 변환 (클라이언트에 일관된 형식으로 전달)
+      const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(30_000) });
+      const imgBuf = Buffer.from(await imgRes.arrayBuffer());
+      const imageData = `data:image/png;base64,${imgBuf.toString("base64")}`;
+
+      jobs.set(jobId, { status: "done", result: { imageData } });
       console.log(`[${jobId}] Image done.`);
     } catch (e) {
       console.error(`[${jobId}] OpenAI error:`, e.message);
