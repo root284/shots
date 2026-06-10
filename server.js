@@ -277,7 +277,6 @@ async function generateImage(req, res) {
           n: 1,
           size: "1792x1024",
           quality: "hd",
-          style: "natural",
         }),
         signal: AbortSignal.timeout(120_000),
       });
