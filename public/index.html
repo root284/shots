@@ -673,6 +673,8 @@ function buildFormData(sceneInput, charDesc, count, existingAngles) {
 }
 
 // ── 개별 카드 이미지 생성 ────────────────────────────────────────────────────
+const cardAbortControllers = {};
+
 async function generateCardImage(index) {
   const angle = currentAngles[index];
   if (!angle) return;
@@ -681,8 +683,17 @@ async function generateCardImage(index) {
   const imgArea = document.getElementById(`card-img-area-${index}`);
   if (!btn || !imgArea) return;
 
+  // 기존 생성 중이면 취소
+  if (cardAbortControllers[index]) cardAbortControllers[index].abort();
+  const controller = new AbortController();
+  cardAbortControllers[index] = controller;
+
   btn.disabled = true;
-  imgArea.innerHTML = '<div class="card-img-placeholder"><div class="card-img-spinner"></div></div>';
+  imgArea.innerHTML = `
+    <div class="card-img-placeholder">
+      <div class="card-img-spinner"></div>
+      <button class="btn-gen-img" onclick="cancelCardImage(${index})" style="margin-top:6px">취소</button>
+    </div>`;
 
   try {
     // 1단계: 제출
@@ -690,17 +701,24 @@ async function generateCardImage(index) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt: angle.imagePrompt }),
+      signal: controller.signal,
     });
     const submitData = await safeJson(submitRes);
     if (!submitRes.ok) throw new Error(submitData.error || `서버 오류 (${submitRes.status})`);
-    const { request_id, model } = submitData;
-    if (!request_id) throw new Error('request_id 없음');
+    const { status_url, response_url } = submitData;
+    if (!status_url) throw new Error('status_url 없음');
 
     // 2단계: 폴링 (1.5초 간격, 최대 60회)
     let imageUrl = null;
     for (let i = 0; i < 60; i++) {
-      await new Promise(r => setTimeout(r, 1500));
-      const pollRes = await fetch(`/api/poll-preview-sheet?id=${encodeURIComponent(request_id)}&model=${encodeURIComponent(model||'')}`);
+      await new Promise((r, j) => {
+        const t = setTimeout(r, 1500);
+        controller.signal.addEventListener('abort', () => { clearTimeout(t); j(new Error('취소됨')); }, { once: true });
+      });
+      const pollRes = await fetch(
+        `/api/poll-preview-sheet?statusUrl=${encodeURIComponent(status_url)}&responseUrl=${encodeURIComponent(response_url)}`,
+        { signal: controller.signal }
+      );
       const pollData = await safeJson(pollRes);
       if (pollData.status === 'done') { imageUrl = pollData.imageUrl; break; }
       if (pollData.status === 'failed') throw new Error(`생성 실패: ${pollData.error}`);
@@ -709,14 +727,23 @@ async function generateCardImage(index) {
 
     imgArea.innerHTML = `<img src="${imageUrl}" alt="generated" loading="lazy">`;
   } catch (err) {
-    imgArea.innerHTML = `
-      <div class="card-img-placeholder" style="padding:12px;text-align:center">
-        <span style="color:var(--danger);font-size:11px">${escHtml(err.message)}</span>
-        <button class="btn-gen-img" onclick="generateCardImage(${index})" style="margin-top:6px">재시도</button>
-      </div>`;
+    if (err.name === 'AbortError' || err.message === '취소됨') {
+      imgArea.innerHTML = `<div class="card-img-placeholder"><span style="font-size:11px">취소됨</span></div>`;
+    } else {
+      imgArea.innerHTML = `
+        <div class="card-img-placeholder" style="padding:12px;text-align:center">
+          <span style="color:var(--danger);font-size:11px">${escHtml(err.message)}</span>
+          <button class="btn-gen-img" onclick="generateCardImage(${index})" style="margin-top:6px">재시도</button>
+        </div>`;
+    }
   } finally {
     btn.disabled = false;
+    delete cardAbortControllers[index];
   }
+}
+
+function cancelCardImage(index) {
+  cardAbortControllers[index]?.abort();
 }
 
 // ── 카드 렌더링 ───────────────────────────────────────────────────────────────

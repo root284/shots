@@ -222,7 +222,7 @@ async function falQueueSubmit(prompt, imageSize = "landscape_16_9") {
         console.log(`fal submit [${model}] attempt ${attempt+1}: status=${res.status}, body=${text.slice(0,200)}`);
         if (res.ok) {
           const data = JSON.parse(text);
-          if (data.request_id) return { request_id: data.request_id, model };
+          if (data.request_id) return { request_id: data.request_id, model, status_url: data.status_url, response_url: data.response_url };
         }
         lastError = `${model} ${res.status}: ${text.slice(0, 100)}`;
         if (attempt === 0) await new Promise(r => setTimeout(r, 1500)); // 재시도 전 잠시 대기
@@ -252,10 +252,10 @@ async function submitImage(req, res) {
 
   const fullPrompt = SKETCH_PREFIX + prompt;
   console.log("Image prompt (first 150):", fullPrompt.slice(0, 150));
-  const { request_id, model } = await falQueueSubmit(fullPrompt, "landscape_16_9");
+  const { request_id, model, status_url, response_url } = await falQueueSubmit(fullPrompt, "landscape_16_9");
   console.log(`Submitted to ${model}, request_id=${request_id}`);
   res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ request_id, model }));
+  res.end(JSON.stringify({ request_id, model, status_url, response_url }));
 }
 
 // ── /api/submit-preview-sheet  (큐에 제출 → request_id 즉시 반환) ───────────
@@ -318,21 +318,20 @@ async function pollPreviewSheet(req, res) {
   }
 
   const params = new URL(req.url, "http://x").searchParams;
-  const id = params.get("id");
-  const model = params.get("model") || "fal-ai/flux/schnell";
-  if (!id) {
+  const statusUrl = params.get("statusUrl");
+  const responseUrl = params.get("responseUrl");
+  if (!statusUrl) {
     res.writeHead(400, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "id required" }));
+    res.end(JSON.stringify({ error: "statusUrl required" }));
     return;
   }
 
-  // 1) /status 로 완료 여부 확인
-  const statusRes = await fetch(
-    `https://queue.fal.run/${model}/requests/${id}/status`,
+  // 1) status_url 로 완료 여부 확인 (fal.ai가 직접 준 URL 사용)
+  const statusRes = await fetch(statusUrl,
     { headers: { "Authorization": `Key ${FAL_KEY}` }, signal: AbortSignal.timeout(15_000) }
   );
   const statusText = await statusRes.text();
-  console.log(`fal.ai status id=${id.slice(0,8)}: ${statusRes.status} ${statusText.slice(0,150)}`);
+  console.log(`fal.ai status: ${statusRes.status} ${statusText.slice(0,150)}`);
 
   if (!statusRes.ok) {
     res.writeHead(200, { "Content-Type": "application/json" });
@@ -349,22 +348,20 @@ async function pollPreviewSheet(req, res) {
   }
 
   if (statusData.status !== "COMPLETED") {
-    // 아직 대기 중
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ status: "pending", queuePosition: statusData.queue_position }));
     return;
   }
 
-  // 2) COMPLETED → 결과 가져오기
-  const resultRes = await fetch(
-    `https://queue.fal.run/${model}/requests/${id}`,
+  // 2) COMPLETED → response_url 로 결과 가져오기
+  const resultRes = await fetch(responseUrl,
     { headers: { "Authorization": `Key ${FAL_KEY}` }, signal: AbortSignal.timeout(15_000) }
   );
   const resultText = await resultRes.text();
-  console.log(`fal.ai result id=${id.slice(0,8)}: ${resultRes.status} ${resultText.slice(0,150)}`);
+  console.log(`fal.ai result: ${resultRes.status} ${resultText.slice(0,150)}`);
 
   const resultData = JSON.parse(resultText);
-  const imageUrl = resultData.images?.[0]?.url || resultData.output?.images?.[0]?.url;
+  const imageUrl = resultData.images?.[0]?.url;
   if (!imageUrl) {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ status: "failed", error: "no image in result" }));
