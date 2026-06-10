@@ -260,10 +260,11 @@ async function generateImage(req, res) {
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ jobId }));
 
-  const refNote = imageBase64
-    ? "IMPORTANT: The attached image is a reference ONLY for character design and art style — do NOT copy its composition, camera angle, or layout. Ignore the spatial arrangement in the reference image entirely. "
-    : "";
-  const fullPrompt = `${refNote}Professional film storyboard panel, clean ink line art, bold confident strokes, high contrast black and white, no gray tones, cinematic framing. ${prompt}. Style: professional Hollywood storyboard, sharp expressive linework.`;
+  const fullPrompt = imageBase64
+    // 레퍼런스 있을 때: 스타일은 이미지에서 자동으로 읽힘 → 구도 무시 지시만 추가
+    ? `IMPORTANT: Use the attached image ONLY as a reference for character design and art style. Do NOT copy its composition, camera angle, or spatial layout — ignore the arrangement entirely. Draw a completely new scene with this composition: ${prompt}`
+    // 레퍼런스 없을 때: 스타일 지시어 포함
+    : `Black and white storyboard sketch, rough pencil lines, cinematic composition, professional storyboard art. ${prompt}`;
   console.log(`[${jobId}] OpenAI prompt (first 150):`, fullPrompt.slice(0, 150));
   console.log(`[${jobId}] Reference image:`, imageBase64 ? "provided" : "none");
 
