@@ -199,18 +199,42 @@ Return ONLY the JSON array, no markdown, no explanation.`;
   res.end(JSON.stringify({ angles }));
 }
 
-// ── 공통: 시트 프롬프트 생성 ────────────────────────────────────────────────
-function buildSheetPrompt(angles) {
-  const angleKeywords = angles.slice(0, 9).map(a =>
-    a.angleName.toLowerCase().replace(/[^a-z\s]/g, '').trim()
-  ).join(', ');
-  const sceneCore = (angles[0]?.imagePrompt || '').split(',').slice(1, 3).join(',').slice(0, 80).trim();
-  return (
-    `storyboard sheet, 3x3 grid of 9 panels, black border lines between panels, panel numbers 1-9, ` +
-    `rough pencil sketch style, black and white, no color, loose hand-drawn lines, ` +
-    `each panel shows a different camera angle: ${angleKeywords}. ` +
-    (sceneCore ? `Scene: ${sceneCore}.` : '')
-  );
+const SKETCH_PREFIX = "storyboard sketch, rough pencil lines, black and white, no color — ";
+
+// ── /api/submit-image  (범용: prompt → fal.ai 큐 제출 → request_id 반환) ────
+async function submitImage(req, res) {
+  if (!FAL_KEY) {
+    res.writeHead(500, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "FAL_KEY not configured on server" }));
+    return;
+  }
+  const raw = await readBody(req);
+  const { prompt } = JSON.parse(raw.toString());
+  if (!prompt?.trim()) {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "prompt required" }));
+    return;
+  }
+
+  const fullPrompt = SKETCH_PREFIX + prompt;
+  console.log("Image prompt (first 150):", fullPrompt.slice(0, 150));
+
+  const submitRes = await fetch("https://queue.fal.run/fal-ai/flux/schnell", {
+    method: "POST",
+    headers: { "Authorization": `Key ${FAL_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt: fullPrompt, image_size: "landscape_16_9", num_inference_steps: 4, num_images: 1 }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  const submitText = await submitRes.text();
+  console.log(`fal.ai submit-image: status=${submitRes.status}, body=${submitText.slice(0, 200)}`);
+  if (!submitRes.ok) {
+    res.writeHead(502, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: `fal.ai ${submitRes.status}: ${submitText.slice(0, 200)}` }));
+    return;
+  }
+  const { request_id } = JSON.parse(submitText);
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ request_id }));
 }
 
 // ── /api/submit-preview-sheet  (큐에 제출 → request_id 즉시 반환) ───────────
@@ -335,6 +359,8 @@ const server = createServer(async (req, res) => {
   try {
     if (req.url === "/api/generate-angles" && req.method === "POST") {
       await generateAngles(req, res);
+    } else if (req.url === "/api/submit-image" && req.method === "POST") {
+      await submitImage(req, res);
     } else if (req.url === "/api/submit-preview-sheet" && req.method === "POST") {
       await submitPreviewSheet(req, res);
     } else if (req.url.startsWith("/api/poll-preview-sheet") && req.method === "GET") {
