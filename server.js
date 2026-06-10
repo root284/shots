@@ -238,32 +238,63 @@ async function generatePreviewSheet(req, res) {
 
   console.log("Sheet prompt length:", sheetPrompt.length, "| first 300:", sheetPrompt.slice(0, 300));
 
-  const falRes = await fetch("https://fal.run/fal-ai/flux/schnell", {
+  // Queue API 사용: Railway 타임아웃 우회 + upstream error 방지
+  const submitRes = await fetch("https://queue.fal.run/fal-ai/flux/schnell", {
     method: "POST",
-    headers: { "Authorization": `Key ${FAL_KEY}`, "Content-Type": "application/json" },
+    headers: {
+      "Authorization": `Key ${FAL_KEY}`,
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify({
       prompt: sheetPrompt,
       image_size: "square",
       num_inference_steps: 4,
       num_images: 1,
-      enable_safety_checker: false,
     }),
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(30_000),
   });
 
-  const falText = await falRes.text();
-  console.log(`fal.ai sheet response: status=${falRes.status}, body=${falText.slice(0, 400)}`);
-  if (!falRes.ok) {
+  const submitText = await submitRes.text();
+  console.log(`fal.ai queue submit: status=${submitRes.status}, body=${submitText.slice(0, 300)}`);
+  if (!submitRes.ok) {
     res.writeHead(502, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: `fal.ai ${falRes.status}: ${falText.slice(0, 200)}` }));
+    res.end(JSON.stringify({ error: `fal.ai submit error ${submitRes.status}: ${submitText.slice(0, 200)}` }));
     return;
   }
 
-  const falData = JSON.parse(falText);
-  const imageUrl = falData.images?.[0]?.url;
+  const { request_id } = JSON.parse(submitText);
+  if (!request_id) {
+    res.writeHead(502, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "fal.ai: no request_id returned" }));
+    return;
+  }
+
+  // 최대 90초 폴링 (3초 간격 × 30회)
+  let imageUrl = null;
+  for (let attempt = 0; attempt < 30; attempt++) {
+    await new Promise(r => setTimeout(r, 3000));
+    const pollRes = await fetch(
+      `https://queue.fal.run/fal-ai/flux/schnell/requests/${request_id}`,
+      { headers: { "Authorization": `Key ${FAL_KEY}` }, signal: AbortSignal.timeout(15_000) }
+    );
+    const pollText = await pollRes.text();
+    console.log(`fal.ai poll [${attempt+1}]: status=${pollRes.status}, body=${pollText.slice(0, 200)}`);
+    if (!pollRes.ok) continue;
+    const pollData = JSON.parse(pollText);
+    if (pollData.images?.[0]?.url) {
+      imageUrl = pollData.images[0].url;
+      break;
+    }
+    if (pollData.status === 'FAILED') {
+      res.writeHead(502, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: `fal.ai job failed: ${pollData.error || 'unknown'}` }));
+      return;
+    }
+  }
+
   if (!imageUrl) {
     res.writeHead(502, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "No image returned from fal.ai" }));
+    res.end(JSON.stringify({ error: "fal.ai: timed out waiting for image" }));
     return;
   }
 
