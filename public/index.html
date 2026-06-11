@@ -6,20 +6,21 @@
 <title>SHOTS — Cinematic Angle Generator</title>
 <style>
   :root {
-    --bg: #0d0d0d;
-    --surface: #161616;
-    --surface2: #1f1f1f;
-    --border: #2a2a2a;
-    --border-active: #444;
+    --bg: #1e2024;
+    --surface: #272a2f;
+    --surface2: #32353b;
+    --border: #3e4148;
+    --border-active: #5c6068;
     --text: #f0f0f0;
-    --text-dim: #aaa;
-    --text-muted: #666;
+    --text-dim: #c8cad0;
+    --text-muted: #909298;
     --accent: #c8a96e;
     --accent-dim: #8a7048;
     --danger: #e05555;
     --success: #5ea85e;
     --radius: 6px;
     --card-w: 380px;
+    --max-w: 1100px;
   }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -30,7 +31,9 @@
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+    align-items: center;
   }
+  body > * { width: 100%; max-width: var(--max-w); }
 
   /* ── Header ── */
   header {
@@ -274,7 +277,7 @@
   .scene-label-row .field-label { margin-bottom: 0; flex-shrink: 0; }
 
   /* ── Toolbar ── */
-  .toolbar { display: none; padding: 12px 32px; border-bottom: 1px solid var(--border); align-items: center; gap: 12px; }
+  .toolbar { display: none; padding: 12px 32px; border-bottom: 1px solid var(--border); align-items: center; gap: 12px; background: var(--bg); }
   .toolbar.visible { display: flex; }
   .toolbar-label { font-size: 12px; color: var(--text-muted); flex: 1; letter-spacing: 0.04em; }
   .btn-secondary {
@@ -311,10 +314,10 @@
     grid-template-columns: repeat(auto-fill, minmax(var(--card-w), 1fr));
     gap: 1px; background: var(--border); flex: 1;
   }
-  .card { background: var(--bg); display: flex; flex-direction: column; }
+  .card { background: var(--surface); display: flex; flex-direction: column; }
   .card-body { padding: 16px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
   .card-header { display: flex; align-items: center; gap: 9px; }
-  .card-num { font-size: 10px; color: var(--accent); font-weight: 700; letter-spacing: 0.1em; opacity: 0.7; flex-shrink: 0; }
+  .card-num { font-size: 10px; color: var(--accent); font-weight: 700; letter-spacing: 0.1em; opacity: 0.8; flex-shrink: 0; }
   .card-angle-name { font-size: 14px; font-weight: 700; letter-spacing: 0.03em; color: var(--text); text-transform: uppercase; }
   .card-description { font-size: 13px; line-height: 1.75; color: var(--text-dim); }
   .card-prompt-wrap { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--border); }
@@ -323,7 +326,7 @@
   .btn-copy { background: none; border: 1px solid var(--border-active); border-radius: 4px; color: var(--text-muted); font-family: inherit; font-size: 10px; letter-spacing: 0.06em; padding: 3px 9px; cursor: pointer; transition: border-color 0.15s, color 0.15s; }
   .btn-copy:hover { border-color: var(--accent-dim); color: var(--accent); }
   .btn-copy.copied { border-color: var(--success); color: var(--success); }
-  .card-prompt { font-size: 11px; line-height: 1.65; color: var(--text-muted); font-style: italic; }
+  .card-prompt { font-size: 11px; line-height: 1.65; color: var(--text-dim); font-style: italic; }
 
   /* ── 카드 이미지 영역 ── */
   .card-img-area {
