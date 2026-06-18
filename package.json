@@ -1,14 +1,21 @@
 {
   "name": "shots-storyboard",
   "version": "1.0.0",
-  "description": "Cinematic angle generator for storyboarding",
+  "description": "Cinematic storyboard tool",
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "build": "vite build",
+    "dev": "vite",
+    "start": "node server.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
+  "dependencies": {
+    "lucide-react": "^1.17.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.2",
+    "vite": "^8.0.15"
+  }
 }
