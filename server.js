@@ -87,7 +87,7 @@ async function generateAngles(req, res) {
   let sceneDescription = "";
   let characterDesc = "";
   let imageBase64 = null, imageMime = null;
-  let count = 9;
+  let count = 10;
   let existingAngles = [];
 
   if (ct.includes("multipart/form-data")) {
