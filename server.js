@@ -3,25 +3,224 @@ import { readFile, stat } from "node:fs/promises";
 import { join, extname, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const PORT = process.env.PORT || 3000;
+const PORT        = process.env.PORT || 3000;
 const OPENAI_KEY  = process.env.OPENAI_API_KEY?.trim();
 const GEMINI_KEY  = process.env.GEMINI_API_KEY?.trim();
 const __dirname   = dirname(fileURLToPath(import.meta.url));
 const DIST        = join(__dirname, "dist");
+const PUBLIC      = join(__dirname, "public");
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
-  ".js": "application/javascript",
-  ".css": "text/css",
-  ".png": "image/png",
-  ".svg": "image/svg+xml",
+  ".js":   "application/javascript",
+  ".css":  "text/css",
+  ".png":  "image/png",
+  ".svg":  "image/svg+xml",
   ".json": "application/json",
-  ".ico": "image/x-icon",
+  ".ico":  "image/x-icon",
   ".woff2": "font/woff2",
-  ".woff": "font/woff",
+  ".woff":  "font/woff",
 };
 
-// ── OpenAI 프록시 ─────────────────────────────────────────────────────────────
+function isShots(req) {
+  const host = req.headers.host || "";
+  return host.includes("shots");
+}
+
+// ── 공통: body 읽기 ───────────────────────────────────────────────────────────
+async function readBody(req) {
+  const chunks = [];
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("body read timeout")), 25_000);
+    req.on("data", c => chunks.push(c));
+    req.on("end",  () => { clearTimeout(timeout); resolve(); });
+    req.on("error",e => { clearTimeout(timeout); reject(e); });
+    req.on("close",() => { clearTimeout(timeout); resolve(); });
+  });
+  return Buffer.concat(chunks);
+}
+
+function parseMultipart(buffer, boundary) {
+  const sep = Buffer.from(`--${boundary}`);
+  const parts = [];
+  let start = 0;
+  while (start < buffer.length) {
+    const sepIdx = buffer.indexOf(sep, start);
+    if (sepIdx === -1) break;
+    const afterSep = sepIdx + sep.length;
+    if (buffer[afterSep] === 0x2d && buffer[afterSep + 1] === 0x2d) break;
+    const lineEnd = buffer.indexOf("\r\n\r\n", afterSep);
+    if (lineEnd === -1) break;
+    const headerStr = buffer.slice(afterSep + 2, lineEnd).toString();
+    const nextSep = buffer.indexOf(sep, lineEnd + 4);
+    const bodyEnd = nextSep === -1 ? buffer.length : nextSep - 2;
+    parts.push({ headers: headerStr, body: buffer.slice(lineEnd + 4, bodyEnd) });
+    start = nextSep === -1 ? buffer.length : nextSep;
+  }
+  return parts;
+}
+
+function getDisposition(headers) {
+  const m = headers.match(/Content-Disposition:[^\r\n]*/i);
+  if (!m) return {};
+  return {
+    name:     m[0].match(/name="([^"]+)"/)?.[1],
+    filename: m[0].match(/filename="([^"]+)"/)?.[1],
+  };
+}
+
+// ── shots: 작업 큐 ────────────────────────────────────────────────────────────
+const jobs = new Map();
+let jobCounter = 0;
+function newJob() {
+  const jobId = `job_${Date.now()}_${++jobCounter}`;
+  jobs.set(jobId, { status: "pending" });
+  setTimeout(() => jobs.delete(jobId), 10 * 60 * 1000);
+  return jobId;
+}
+
+// ── shots: 앵글 생성 ──────────────────────────────────────────────────────────
+async function generateAngles(req, res) {
+  if (!GEMINI_KEY) {
+    res.writeHead(500, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "GEMINI_API_KEY not configured" }));
+    return;
+  }
+
+  const ct = req.headers["content-type"] || "";
+  const buffer = await readBody(req);
+
+  let sceneDescription = "", characterDesc = "", imageBase64 = null, imageMime = null;
+  let count = 10, existingAngles = [];
+
+  if (ct.includes("multipart/form-data")) {
+    const bm = ct.match(/boundary=(?:"([^"]+)"|([^\s;]+))/);
+    if (bm) {
+      for (const part of parseMultipart(buffer, bm[1] || bm[2])) {
+        const { name, filename } = getDisposition(part.headers);
+        const mime = () => part.headers.match(/Content-Type:\s*([^\r\n]+)/i)?.[1]?.trim() || "image/jpeg";
+        if (name === "sceneDescription")  sceneDescription = part.body.toString();
+        else if (name === "characterDesc") characterDesc    = part.body.toString();
+        else if (name === "image" && filename) { imageMime = mime(); imageBase64 = part.body.toString("base64"); }
+        else if (name === "count")         count = parseInt(part.body.toString()) || 10;
+        else if (name === "existingAngles") { try { existingAngles = JSON.parse(part.body.toString()); } catch {} }
+      }
+    }
+  } else {
+    const body = JSON.parse(buffer.toString());
+    sceneDescription = body.sceneDescription || "";
+    characterDesc    = body.characterDesc    || "";
+  }
+
+  if (!sceneDescription.trim() && !imageBase64 && !characterDesc.trim()) {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "장면 설명 또는 이미지를 입력해주세요." }));
+    return;
+  }
+
+  const jobId = newJob();
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ jobId }));
+
+  (async () => {
+    try {
+      const ANGLE_POOL = [
+        "Establishing Shot","Wide Shot","Medium Shot","Close-Up","Extreme Close-Up",
+        "Low Angle","High Angle / Bird's Eye","Dutch Tilt",
+        "Over-the-Shoulder","Two Shot",
+        "Foreground Framing","Mirror Reflection","Through Glass","Silhouette",
+      ];
+      const excludeNote = existingAngles.length
+        ? `\nALREADY USED ANGLES (do NOT repeat): ${existingAngles.join(", ")}.` : "";
+
+      const systemPrompt = `You are a professional cinematographer and storyboard artist.
+Your task: given a scene, generate ${count} different cinematic angle cards — each a different way to shoot the SAME scene.
+
+${characterDesc.trim() ? `CHARACTER INFO: ${characterDesc.trim()}\nReference these characters by name in every koreanDescription and imagePrompt. Include their appearance details in every imagePrompt for consistency.` : ""}
+${imageBase64 ? `A SCENE REFERENCE IMAGE is provided. Analyze the spatial layout, characters, mood, and narrative context.` : ""}
+
+Select angles from this pool: ${ANGLE_POOL.join(", ")}.${excludeNote}
+Weight your selection based on scene emotion/tone. Choose a diverse, dramatically effective set of ${count}.
+Always include at least one shot with foreground framing or environmental obstruction.
+
+For each imagePrompt:
+- Describe characters and their positions in detail
+- Include environment and lighting
+- Change ONLY the camera angle/framing between cards
+- Write in rich cinematic detail — this prompt will be used in professional image generation tools
+- For "Extreme Close-Up": choose the most dramatically relevant body part based on scene context (eyes for gazing/emotion, mouth/lips for dialogue, hands for gestures, feet for walking/running). Specify exactly which part and why it matters narratively.
+
+Respond with a JSON array of exactly ${count} objects:
+- "angleName": string (from the pool)
+- "koreanDescription": string (2-3 lines in Korean, directorial intent)
+- "imagePrompt": string — MUST start with "Black and white storyboard sketch, rough pencil lines, cinematic composition, professional storyboard art. " then camera angle description, then scene and character details.
+
+Return ONLY the JSON array, no markdown, no explanation.`;
+
+      const geminiParts = [];
+      if (imageBase64) {
+        geminiParts.push({ inlineData: { mimeType: imageMime, data: imageBase64 } });
+        geminiParts.push({ text: "SCENE REFERENCE IMAGE (above)" });
+      }
+      const ctx = [
+        imageBase64 ? "scene reference image provided" : null,
+        characterDesc.trim() ? `characters: ${characterDesc.slice(0, 100)}` : null,
+        sceneDescription.trim() ? `scene: ${sceneDescription}` : null,
+      ].filter(Boolean);
+      geminiParts.push({ text: `${ctx.join("; ")}.\n\nGenerate ${count} cinematic angles.${existingAngles.length ? ` Do NOT use: ${existingAngles.join(", ")}.` : ""}` });
+
+      const apiRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: systemPrompt }] },
+            contents: [{ parts: geminiParts }],
+            generationConfig: { maxOutputTokens: 4096, temperature: 1.0, thinkingConfig: { thinkingBudget: 0 } },
+          }),
+          signal: AbortSignal.timeout(90_000),
+        }
+      );
+
+      const geminiText = await apiRes.text();
+      if (!apiRes.ok) {
+        let errMsg = "Gemini API error";
+        try { errMsg = JSON.parse(geminiText).error?.message || errMsg; } catch {}
+        jobs.set(jobId, { status: "error", error: errMsg });
+        return;
+      }
+
+      const data = JSON.parse(geminiText);
+      if (data.candidates?.[0]?.finishReason && data.candidates[0].finishReason !== "STOP") {
+        jobs.set(jobId, { status: "error", error: `Gemini 오류: ${data.candidates[0].finishReason}` });
+        return;
+      }
+
+      const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+      const jsonMatch = rawText.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) { jobs.set(jobId, { status: "error", error: "Gemini 응답 형식 오류" }); return; }
+
+      const angles = JSON.parse(jsonMatch[0]);
+      jobs.set(jobId, { status: "done", result: { angles } });
+    } catch (e) {
+      jobs.set(jobId, { status: "error", error: e.message });
+    }
+  })();
+}
+
+async function jobResult(req, res) {
+  const jobId = new URL(req.url, "http://localhost").searchParams.get("jobId");
+  if (!jobId || !jobs.has(jobId)) {
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Job not found" }));
+    return;
+  }
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(jobs.get(jobId)));
+}
+
+// ── storyboard: OpenAI 프록시 ─────────────────────────────────────────────────
 async function proxyOpenAI(req, res) {
   if (!OPENAI_KEY) {
     res.writeHead(500, { "Content-Type": "application/json" });
@@ -37,8 +236,7 @@ async function proxyOpenAI(req, res) {
   const body = Buffer.concat(chunks);
 
   const fetchRes = await fetch(targetUrl, {
-    method: req.method,
-    headers,
+    method: req.method, headers,
     body: body.length > 0 ? body : undefined,
     signal: AbortSignal.timeout(180_000),
   });
@@ -47,7 +245,7 @@ async function proxyOpenAI(req, res) {
   res.end(Buffer.from(await fetchRes.arrayBuffer()));
 }
 
-// ── Gemini 영상 분석 프록시 ───────────────────────────────────────────────────
+// ── storyboard: Gemini 영상 분석 ──────────────────────────────────────────────
 async function analyzeVideoWithGemini(req, res) {
   if (!GEMINI_KEY) {
     res.writeHead(500, { "Content-Type": "application/json" });
@@ -56,11 +254,9 @@ async function analyzeVideoWithGemini(req, res) {
   }
 
   const mimeType = req.headers["content-type"] || "video/mp4";
-
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
   const videoData = Buffer.concat(chunks);
-  console.log(`Gemini upload: ${(videoData.length / 1024 / 1024).toFixed(1)} MB`);
 
   const boundary = `BOUNDARY_${Date.now()}`;
   const metaPart = Buffer.from(
@@ -103,12 +299,10 @@ async function analyzeVideoWithGemini(req, res) {
 
   for (let i = 0; i < 30; i++) {
     await new Promise(r => setTimeout(r, 2000));
-    const stateRes  = await fetch(`https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${GEMINI_KEY}`);
-    const stateJson = await stateRes.json();
-    const state = stateJson.state;
-    console.log(`Gemini file state: ${state} (attempt ${i + 1})`);
-    if (state === "ACTIVE") break;
-    if (state === "FAILED") {
+    const stateJson = await fetch(`https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${GEMINI_KEY}`)
+      .then(r => r.json());
+    if (stateJson.state === "ACTIVE") break;
+    if (stateJson.state === "FAILED") {
       res.writeHead(502, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Gemini 파일 처리 실패" }));
       return;
@@ -122,7 +316,6 @@ async function analyzeVideoWithGemini(req, res) {
 
 예시:
 ≈0:00 M.F.S./eye-level | 화면: 스테인드글라스 창이 있는 고딕 성당 내부, 따뜻한 자연광 | 피사체: 금발 여성, 붉은 드레스, 측면으로 천천히 걸어감 | 카메라: Slow dolly left, 인물을 측면에서 팔로우 | 분위기: 장엄하고 고독한 존재감
-≈0:03 E.C.U./eye-level | 화면: 부드럽게 흐릿한 배경, 빛 입자 | 피사체: 인물 하관 측면 클로즈업, 입술·턱선 | 카메라: 이전과 같은 속도 트래킹, 핸드헬드 미세 흔들림 | 분위기: 내면을 감추는 차가운 아름다움
 
 주의사항:
 - 타임코드는 해당 씬이 실제로 시작되는 시각
@@ -135,18 +328,15 @@ async function analyzeVideoWithGemini(req, res) {
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [
-          { fileData: { mimeType, fileUri } },
-          { text: prompt },
-        ]}],
-      }),
+      body: JSON.stringify({ contents: [{ parts: [
+        { fileData: { mimeType, fileUri } },
+        { text: prompt },
+      ]}] }),
       signal: AbortSignal.timeout(120_000),
     }
   );
 
-  fetch(`https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${GEMINI_KEY}`, { method: "DELETE" })
-    .catch(() => {});
+  fetch(`https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${GEMINI_KEY}`, { method: "DELETE" }).catch(() => {});
 
   const genJson = await genRes.json();
   if (!genRes.ok) {
@@ -160,7 +350,7 @@ async function analyzeVideoWithGemini(req, res) {
   res.end(JSON.stringify({ text }));
 }
 
-// ── Gemini 이미지 분석 ────────────────────────────────────────────────────────
+// ── storyboard: Gemini 이미지 분석 ───────────────────────────────────────────
 async function analyzeImagesWithGemini(req, res) {
   if (!GEMINI_KEY) {
     res.writeHead(500, { "Content-Type": "application/json" });
@@ -182,9 +372,6 @@ async function analyzeImagesWithGemini(req, res) {
 
 출력 형식 (마크다운 헤더·설명 없이 이 형식만):
 ≈[컷번호] [샷사이즈/앵글] | 화면: [배경·공간·조명·색감 묘사] | 피사체: [인물 위치·복장·표정·동작] | 카메라: [카메라 무브 추정·고정 여부] | 분위기: [감정·무드 한 줄]
-
-예시:
-≈1 M.F.S./eye-level | 화면: 스테인드글라스 창이 있는 고딕 성당 내부, 따뜻한 자연광 | 피사체: 금발 여성, 붉은 드레스, 측면으로 서 있음 | 카메라: 고정(FIX), 약간의 핸드헬드 느낌 | 분위기: 장엄하고 고독한 존재감
 
 주의사항:
 - 샷사이즈: EWS / WS / MWS / MFS / MS / MCU / CU / ECU 중 선택
@@ -221,12 +408,12 @@ async function analyzeImagesWithGemini(req, res) {
 }
 
 // ── 정적 파일 서빙 ────────────────────────────────────────────────────────────
-async function serveStatic(req, res) {
-  let filePath = join(DIST, req.url.split("?")[0]);
+async function serveStatic(req, res, root) {
+  let filePath = join(root, req.url.split("?")[0]);
   try {
     if ((await stat(filePath)).isDirectory()) filePath = join(filePath, "index.html");
   } catch {
-    filePath = join(DIST, "index.html");
+    filePath = join(root, "index.html");
   }
   try {
     const data = await readFile(filePath);
@@ -238,16 +425,29 @@ async function serveStatic(req, res) {
   }
 }
 
+// ── 라우터 ────────────────────────────────────────────────────────────────────
 const server = createServer(async (req, res) => {
   try {
-    if (req.url.startsWith("/api/openai/")) {
-      await proxyOpenAI(req, res);
-    } else if (req.url === "/api/gemini/analyze" && req.method === "POST") {
-      await analyzeVideoWithGemini(req, res);
-    } else if (req.url === "/api/gemini/analyze-image" && req.method === "POST") {
-      await analyzeImagesWithGemini(req, res);
+    if (isShots(req)) {
+      // shots.qpola.net → shots 앵글 생성기
+      if (req.url === "/api/generate-angles" && req.method === "POST") {
+        await generateAngles(req, res);
+      } else if (req.url.startsWith("/api/job-result") && req.method === "GET") {
+        await jobResult(req, res);
+      } else {
+        await serveStatic(req, res, PUBLIC);
+      }
     } else {
-      await serveStatic(req, res);
+      // storyboard.qpola.net → 스토리보드 + 영상분석기
+      if (req.url.startsWith("/api/openai/")) {
+        await proxyOpenAI(req, res);
+      } else if (req.url === "/api/gemini/analyze" && req.method === "POST") {
+        await analyzeVideoWithGemini(req, res);
+      } else if (req.url === "/api/gemini/analyze-image" && req.method === "POST") {
+        await analyzeImagesWithGemini(req, res);
+      } else {
+        await serveStatic(req, res, DIST);
+      }
     }
   } catch (e) {
     console.error("Handler error:", e.message);
@@ -258,7 +458,11 @@ const server = createServer(async (req, res) => {
   }
 });
 
-process.on("uncaughtException", (e) => console.error("Uncaught:", e.message));
-process.on("unhandledRejection", (e) => console.error("Unhandled:", e));
+process.on("uncaughtException",  e => console.error("Uncaught:", e.message));
+process.on("unhandledRejection", e => console.error("Unhandled:", e));
 
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`GEMINI_KEY: ${GEMINI_KEY ? "✓" : "✗ MISSING"}`);
+  console.log(`OPENAI_KEY: ${OPENAI_KEY ? "✓" : "✗ MISSING"}`);
+});
