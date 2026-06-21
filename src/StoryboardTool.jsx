@@ -834,7 +834,7 @@ ${gkontiText}`;
                 if (!confirm("작업 내용을 모두 초기화할까요?")) return;
                 localStorage.removeItem("sb_save"); localStorage.removeItem("sb_images");
                 location.reload();
-              }} style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: C.inkSoft, background: "none", border: `1px solid ${C.line}`, borderRadius: 2, padding: "3px 8px", cursor: "pointer" }}>
+              }} style={{ fontFamily: "'Zilla Slab', serif", fontWeight: 700, fontSize: 13, color: C.paper, background: C.red, border: "none", borderRadius: 2, padding: "7px 14px", cursor: "pointer" }}>
                 초기화
               </button>
             </span>
